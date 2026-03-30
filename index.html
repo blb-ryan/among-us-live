@@ -44,7 +44,7 @@ input,textarea{user-select:auto!important;-webkit-user-select:auto!important}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef,useMemo,useCallback}=React;
-const VERSION='Mar 30 07:03';
+const VERSION='Mar 30 07:33';
 
 /* ── Firebase ── */
 const FB={
@@ -512,7 +512,7 @@ function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGho
 
   const otherPlayers=Object.entries(players).filter(([n,p])=>n!==myName&&!p.isSpectator&&p.alive).map(([n])=>n);
 
-  if(!isAlive&&!isSpectator) return<GhostView game={game} myName={myName} label="You are dead. Spectating…" onGhostSabotage={onGhostSabotage} hostControls={isHost&&<button onClick={onNewGame} className="w-full text-left text-slate-300 text-sm py-1 btn hover:text-white">🔄 Reset / New Game</button>}/>;
+  if(!isAlive&&!isSpectator) return<GhostView game={game} myName={myName} label="You are dead. Spectating…" onGhostSabotage={onGhostSabotage} hostControls={isHost&&<button onClick={()=>{if(window.confirm('Reset and start a new game?'))onNewGame();}} className="w-full text-left text-slate-300 text-sm py-1 btn hover:text-white">🔄 Reset / New Game</button>}/>;
 
   return<Page className="justify-center">
     {/* Victim picker overlay */}
@@ -541,7 +541,7 @@ function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGho
 
     {isSpectator&&<div className="mb-6 bg-slate-800/60 rounded-xl px-4 py-2 border border-slate-600"><p className="text-slate-400 text-sm font-semibold">👁 Spectating</p></div>}
     <p className="text-slate-400 text-sm font-semibold mb-1">{alive.length} alive</p>
-    <p className="text-slate-500 text-xs mb-8">Anyone tap when a body is found</p>
+    <p className="text-slate-500 text-xs mb-8">Finder: tap to report a body</p>
 
     {(isAlive||isSpectator)&&<button onClick={isAlive?handleBodyTap:undefined} disabled={pressed||isSpectator}
       className={`w-64 h-64 rounded-full font-title text-3xl btn transition-all flex items-center justify-center leading-tight
@@ -567,7 +567,7 @@ function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGho
       </>}
     </>}
 
-    {isHost&&<button onClick={onNewGame} className="mt-10 text-slate-500 text-xs hover:text-slate-300 btn underline">Reset / New Game</button>}
+    {isHost&&<button onClick={()=>{if(window.confirm('Reset and start a new game?'))onNewGame();}} className="mt-10 text-slate-500 text-xs hover:text-slate-300 btn underline">Reset / New Game</button>}
   </Page>;
 }
 
@@ -892,13 +892,15 @@ function WinScreen({game,isHost,onNewGame,onLeave}){
   const allPlayers=Object.keys(players);
   useEffect(()=>{playSound(isCrewWin?'crew_win':'imp_win');},[]);
 
-  // Build vote summary: who voted for whom
-  const voteSummary=Object.entries(votes).map(([voter,votedFor])=>({voter,votedFor:votedFor==='skip'?'Skip':votedFor}));
+  // Build vote totals per candidate (no voter names to avoid spoilers)
+  const voteTotals=Object.values(votes).reduce((acc,v)=>{const k=v==='skip'?'Skip':v;acc[k]=(acc[k]||0)+1;return acc;},{});
+  const voteEntries=Object.entries(voteTotals).sort((a,b)=>b[1]-a[1]);
 
   return<Page className="justify-center">
     <div className="celebrate flex flex-col items-center">
       <Crew color={isCrewWin?'#06b6d4':'#ef4444'} size={100}/>
-      <h1 className={`font-title text-5xl mt-4 ${isCrewWin?'text-cyan-400':'text-red-500'}`}>
+      <h1 className={`font-title text-5xl mt-4 animate-bounce drop-shadow-lg ${isCrewWin?'text-cyan-400':'text-red-500'}`}
+          style={{textShadow:isCrewWin?'0 0 24px #06b6d4':'0 0 24px #ef4444'}}>
         {isCrewWin?'CREWMATES WIN!':'IMPOSTERS WIN!'}
       </h1>
     </div>
@@ -923,13 +925,12 @@ function WinScreen({game,isHost,onNewGame,onLeave}){
     </div>
 
     {/* Vote recap */}
-    {voteSummary.length>0&&<div className="mt-3 w-full max-w-sm bg-slate-800/60 rounded-2xl p-3 border border-slate-700">
-      <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Last Vote</p>
-      {voteSummary.map(({voter,votedFor})=>(
-        <div key={voter} className="flex items-center gap-1 py-1 text-xs">
-          <span className="text-slate-400 flex-1">{voter}</span>
-          <span className="text-slate-600">→</span>
-          <span className={`font-semibold ml-1 ${votedFor==='Skip'?'text-yellow-400':'text-white'}`}>{votedFor}</span>
+    {voteEntries.length>0&&<div className="mt-3 w-full max-w-sm bg-slate-800/60 rounded-2xl p-3 border border-slate-700">
+      <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Final Vote</p>
+      {voteEntries.map(([name,count])=>(
+        <div key={name} className="flex items-center gap-1 py-1 text-xs">
+          <span className={`flex-1 font-semibold ${name==='Skip'?'text-yellow-400':'text-white'}`}>{name}</span>
+          <span className="text-slate-400">{count} vote{count!==1?'s':''}</span>
         </div>
       ))}
     </div>}
@@ -941,9 +942,12 @@ function WinScreen({game,isHost,onNewGame,onLeave}){
       <div><p className="text-red-400 font-title text-2xl">{wins.imposters}</p><p className="text-slate-400 text-xs">Imposter wins</p></div>
     </div>
 
-    {isHost?<button onClick={onNewGame} className="mt-5 w-full max-w-sm bg-cyan-600 text-white font-title text-2xl py-4 rounded-2xl btn">NEW GAME</button>
-      :<p className="mt-5 text-slate-400 text-sm">Waiting for host to start a new game…</p>}
-    <button onClick={onLeave} className="mt-3 text-slate-500 text-sm hover:text-slate-300 btn underline">Leave room</button>
+    <div className="h-28"/>
+    <div className="fixed bottom-0 left-0 right-0 flex flex-col items-center gap-2 pb-5 pt-3 px-4" style={{background:'linear-gradient(to top,#0f172a 80%,transparent)'}}>
+      {isHost?<button onClick={()=>{if(window.confirm('Start a new game?'))onNewGame();}} className="pulse-glow w-full max-w-sm bg-cyan-600 text-white font-title text-2xl py-4 rounded-2xl btn">NEW GAME</button>
+        :<p className="text-slate-400 text-sm">Waiting for host to start a new game…</p>}
+      <button onClick={onLeave} className="text-slate-500 text-sm hover:text-slate-300 btn underline">Leave room</button>
+    </div>
   </Page>;
 }
 
