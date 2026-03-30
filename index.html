@@ -44,7 +44,7 @@ input,textarea{user-select:auto!important;-webkit-user-select:auto!important}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef,useMemo,useCallback}=React;
-const VERSION='Mar 30 07:40';
+const VERSION='Mar 30 08:24';
 
 /* ── Firebase ── */
 const FB={
@@ -58,6 +58,14 @@ const FB={
 };
 if(!firebase.apps.length) firebase.initializeApp(FB);
 const db=firebase.database();
+const SV=firebase.database.ServerValue;
+// Server clock offset: serverTime = Date.now() + _serverOffset
+let _serverOffset=0;
+db.ref('.info/serverTimeOffset').on('value',s=>{_serverOffset=s.val()||0;});
+// Schedule a synced sound to play SOUND_BUFFER_MS after its server timestamp,
+// giving all clients time to receive the Firebase event before playing together
+const SOUND_BUFFER_MS=300;
+function playSoundAt(fn,serverTs){const delay=Math.max(0,(serverTs+SOUND_BUFFER_MS-_serverOffset)-Date.now());setTimeout(fn,delay);}
 
 /* ── Ghost Sabotage Actions ── */
 const GHOST_ACTIONS=[
@@ -1051,21 +1059,21 @@ function App(){
           setHostToast(true);setTimeout(()=>setHostToast(false),4000);
         }
       }
-      // Synced sounds — play on ALL devices when triggered
+      // Synced sounds — scheduled to play at triggeredAt+SOUND_BUFFER_MS on all devices
       const se=g.soundEvent;
       if(se?.triggeredAt&&se.triggeredAt!==lastSoundRef.current){
         lastSoundRef.current=se.triggeredAt;
-        if(se.type==='body')playAlarm(3.5);
-        else if(se.type==='meeting')playMeetingAlarm();
-        else if(se.type==='sabotage')playSabotageAlarm();
-        else if(se.type==='ghost_sabotage')playGhostSound();
+        if(se.type==='body')playSoundAt(()=>playAlarm(3.5),se.triggeredAt);
+        else if(se.type==='meeting')playSoundAt(playMeetingAlarm,se.triggeredAt);
+        else if(se.type==='sabotage')playSoundAt(playSabotageAlarm,se.triggeredAt);
+        else if(se.type==='ghost_sabotage')playSoundAt(playGhostSound,se.triggeredAt);
       }
       // Ghost sabotage — show blocking overlay with action on alive players' screens
       const ge=g.ghostSabotageEvent;
       if(ge?.triggeredAt&&ge.triggeredAt!==lastGhostRef.current){
         lastGhostRef.current=ge.triggeredAt;
         const amAlive=g.players?.[myName]?.alive&&!g.players?.[myName]?.isSpectator;
-        const isFresh=Date.now()<ge.triggeredAt+5000;
+        const isFresh=Date.now()+_serverOffset<ge.triggeredAt+5000;
         if(amAlive&&isFresh)setGhostOverlay({action:ge.action,endsAt:ge.triggeredAt+5000});
       }
     });
@@ -1110,7 +1118,7 @@ function App(){
   // Sabotage auto-clear (all clients try; idempotent — survives host refresh)
   useEffect(()=>{
     if(!game?.sabotage?.active||!game?.sabotage?.triggeredAt)return;
-    const remaining=game.sabotage.triggeredAt+5000-Date.now();
+    const remaining=game.sabotage.triggeredAt+5000-(Date.now()+_serverOffset);
     if(remaining<=0){db.ref(`games/${roomCode}/sabotage/active`).set(false);return;}
     const t=setTimeout(()=>db.ref(`games/${roomCode}/sabotage/active`).set(false),remaining);
     return()=>clearTimeout(t);
@@ -1213,7 +1221,7 @@ function App(){
     const upd={
       phase:'discussion',
       meeting:{calledBy:myName,calledAt:now,type,discussionEndsAt:now+DISCUSSION_MS},
-      soundEvent:{type:'meeting',triggeredAt:now}
+      soundEvent:{type:'meeting',triggeredAt:SV.TIMESTAMP}
     };
     if(type==='emergency')upd[`players/${myName}/emergencyUsed`]=true;
     await db.ref(`games/${roomCode}`).update(upd);
@@ -1227,7 +1235,7 @@ function App(){
     const now=Date.now();
     const upd={
       meeting:{calledBy:myName,calledAt:now,type:'body',victim:victim||null,discussionEndsAt:now+DISCUSSION_MS},
-      soundEvent:{type:'body',triggeredAt:now}
+      soundEvent:{type:'body',triggeredAt:SV.TIMESTAMP}
     };
     if(victim){
       upd[`players/${victim}/alive`]=false;
@@ -1249,7 +1257,7 @@ function App(){
       const now=Date.now();
       upd.phase='discussion';upd['meeting/calledBy']=myName;upd['meeting/calledAt']=now;
       upd['meeting/type']='body';upd['meeting/discussionEndsAt']=now+DISCUSSION_MS;
-      upd.soundEvent={type:'body',triggeredAt:now};
+      upd.soundEvent={type:'body',triggeredAt:SV.TIMESTAMP};
     }
     await db.ref(`games/${roomCode}`).update(upd);
   };
@@ -1272,23 +1280,21 @@ function App(){
   const noEject=async()=>{await db.ref(`games/${roomCode}`).update({phase:'scatter',scatterEndsAt:Date.now()+15000});};
   const cancelVote=async()=>{await db.ref(`games/${roomCode}`).update({phase:'play',votes:{}});};
   const doGhostSabotage=async()=>{
-    const now=Date.now();
     const action=GHOST_ACTIONS[Math.floor(Math.random()*GHOST_ACTIONS.length)];
     try{await db.ref(`games/${roomCode}`).update({
       [`players/${myName}/ghostSabotageUsed`]:true,
-      ghostSabotageEvent:{triggeredAt:now,action,triggeredBy:myName},
-      soundEvent:{type:'ghost_sabotage',triggeredAt:now}
+      ghostSabotageEvent:{triggeredAt:SV.TIMESTAMP,action,triggeredBy:myName},
+      soundEvent:{type:'ghost_sabotage',triggeredAt:SV.TIMESTAMP}
     });}catch(e){showErr('Ghost sabotage failed. Check connection.');}
   };
 
   const sabotage=async()=>{
     const myPlayer=game?.players?.[myName];
     if(!myPlayer||myPlayer.sabotagesLeft<=0||game?.sabotage?.active)return;
-    const now=Date.now();
     try{await db.ref(`games/${roomCode}`).update({
-      'sabotage/active':true,'sabotage/triggeredAt':now,
+      'sabotage/active':true,'sabotage/triggeredAt':SV.TIMESTAMP,
       [`players/${myName}/sabotagesLeft`]:myPlayer.sabotagesLeft-1,
-      soundEvent:{type:'sabotage',triggeredAt:now}
+      soundEvent:{type:'sabotage',triggeredAt:SV.TIMESTAMP}
     });}catch(e){showErr('Sabotage failed. Check connection.');}
   };
 
