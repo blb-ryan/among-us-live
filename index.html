@@ -44,7 +44,7 @@ input,textarea{user-select:auto!important;-webkit-user-select:auto!important}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef,useMemo,useCallback}=React;
-const VERSION='Mar 30 06:57';
+const VERSION='Mar 30 07:03';
 
 /* ── Firebase ── */
 const FB={
@@ -450,7 +450,8 @@ function RolesScreen({game,myName,isHost,onRevealDone,onStartPlaying}){
   if(players[myName]?.isSpectator) return<Page className="justify-center">
     <Crew color="#475569" size={80} ghost/>
     <h2 className="font-title text-3xl text-slate-400 mt-4">SPECTATING</h2>
-    <p className="text-slate-500 mt-2 text-center text-sm">Roles are being assigned.<br/>Wait for the game to start.</p>
+    <p className="text-slate-500 mt-2 text-center text-sm">You joined as a spectator — you won't receive a role.</p>
+    <p className="text-slate-600 text-xs mt-1 text-center">Watch along and enjoy the chaos!</p>
     <div className="mt-6 w-full max-w-sm bg-slate-800/60 rounded-2xl p-3 border border-slate-700 text-center">
       <p className="text-slate-400 text-xs">{revealedCount}/{total} players have seen their role</p>
     </div>
@@ -491,7 +492,15 @@ function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGho
   const isImp=imposters.includes(myName);
   const myPlayer=players[myName]||{};
   const sabLeft=myPlayer.sabotagesLeft||0;
-  const sabAvail=isImp&&isAlive&&sabLeft>0&&!(game.sabotage?.active);
+  const sabActive=game.sabotage?.active;
+  const sabTriggeredAt=game.sabotage?.triggeredAt||0;
+  const [sabCooldown,setSabCooldown]=useState(()=>sabActive?Math.max(0,sabTriggeredAt+5000-Date.now()):0);
+  const sabAvail=isImp&&isAlive&&sabLeft>0&&!sabActive;
+  useEffect(()=>{
+    if(!sabActive)return setSabCooldown(0);
+    const iv=setInterval(()=>setSabCooldown(Math.max(0,sabTriggeredAt+5000-Date.now())),200);
+    return()=>clearInterval(iv);
+  },[sabActive,sabTriggeredAt]);
   const emerUsed=!!myPlayer.emergencyUsed;
   const [pressed,setPressed]=useState(false);
   const [picking,setPicking]=useState(false);
@@ -552,9 +561,9 @@ function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGho
           className="mt-5 bg-slate-800 hover:bg-slate-700 text-red-400 font-bold px-6 py-3 rounded-xl btn border border-red-800 text-sm">
           ⚡ Sabotage ({sabLeft} left)
         </button>}
-        {!sabAvail&&game.sabotage?.active&&<p className="mt-5 text-red-500 text-sm font-bold animate-pulse">⚡ SABOTAGE ACTIVE</p>}
-        {!sabAvail&&!game.sabotage?.active&&sabLeft===0&&<p className="mt-5 text-slate-600 text-xs">Sabotages used</p>}
-        {!sabAvail&&!game.sabotage?.active&&sabLeft>0&&<p className="mt-5 text-slate-500 text-xs">Sabotage cooling down…</p>}
+        {sabActive&&<p className="mt-5 text-red-500 text-sm font-bold animate-pulse">⚡ SABOTAGE ACTIVE — {Math.ceil(sabCooldown/1000)}s</p>}
+        {!sabActive&&sabLeft===0&&<p className="mt-5 text-slate-600 text-xs">Sabotages used</p>}
+        {!sabActive&&!sabAvail&&sabLeft>0&&<p className="mt-5 text-slate-500 text-xs">Sabotage cooling down…</p>}
       </>}
     </>}
 
@@ -565,7 +574,7 @@ function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGho
 /* ── DISCUSSION ── */
 function DiscussionScreen({game,myName,isHost,onEndDiscussion,onGhostSabotage}){
   const meeting=game.meeting||{};
-  const [remaining,setRemaining]=useState(()=>Math.max(0,meeting.discussionEndsAt-Date.now()));
+  const [remaining,setRemaining]=useState(()=>meeting.discussionEndsAt?Math.max(0,meeting.discussionEndsAt-Date.now()):120000);
   const players=game.players||{};
   const alive=getAlive(players);
   const isSpectator=players[myName]?.isSpectator;
@@ -574,15 +583,13 @@ function DiscussionScreen({game,myName,isHost,onEndDiscussion,onGhostSabotage}){
   if(!isAlive&&!isSpectator) return<GhostView game={game} myName={myName} label="You are dead — spectating discussion" onGhostSabotage={onGhostSabotage} hostControls={isHost&&<button onClick={onEndDiscussion} className="w-full text-left text-slate-300 text-sm py-1 btn hover:text-white">⏩ Skip to Vote</button>}/>;
 
   useEffect(()=>{
-    const iv=setInterval(()=>{
-      const rem=Math.max(0,meeting.discussionEndsAt-Date.now());
-      setRemaining(rem);
-      if(rem<=0){clearInterval(iv);if(isHost)onEndDiscussion();}
-    },500);
+    if(!meeting.discussionEndsAt)return;
+    const iv=setInterval(()=>setRemaining(Math.max(0,meeting.discussionEndsAt-Date.now())),500);
     return()=>clearInterval(iv);
-  },[meeting.discussionEndsAt,isHost]);
+  },[meeting.discussionEndsAt]);
 
   const urgent=remaining<30000;
+  const critical=remaining>0&&remaining<10000;
 
   return<Page>
     <h2 className={`font-title text-3xl mt-2 mb-1 ${meeting.type==='emergency'?'text-yellow-400':'text-red-400'}`}>
@@ -593,7 +600,8 @@ function DiscussionScreen({game,myName,isHost,onEndDiscussion,onGhostSabotage}){
       <p className="text-white font-bold text-base">{meeting.victim}'s body was found</p>
     </div>}
     {meeting.calledBy&&<p className="text-slate-400 text-sm mb-4">Reported by <span className="text-white font-semibold">{meeting.calledBy}</span></p>}
-    <div className={`font-title text-7xl mb-6 ${urgent?'timer-urgent':'text-white'}`}>{fmtMs(remaining)}</div>
+    <div className={`font-title text-7xl mb-6 ${critical?'text-red-500 timer-urgent':urgent?'timer-urgent':'text-white'}`}>{fmtMs(remaining)}</div>
+    {critical&&<p className="text-red-400 font-bold text-sm mb-4 animate-pulse">⚡ VOTING OPENS SOON!</p>}
     <p className="text-slate-400 text-sm mb-4">Discuss! Voting opens when the timer ends.</p>
 
     {isHost&&<button onClick={onEndDiscussion}
@@ -694,7 +702,7 @@ function VotingScreen({game,myName,isHost,onVote,onCancelVote,onGhostSabotage}){
       ))}
       <button onClick={()=>setSelected('__skip__')}
         className={`w-full py-3 px-5 rounded-xl font-bold btn border-2 ${selected==='__skip__'?'bg-yellow-900/60 border-yellow-500 text-yellow-300':'bg-slate-800 border-slate-600 text-slate-400'}`}>
-        Skip Vote
+        Skip Vote — no ejection
       </button>
     </div>
     {selected&&<button onClick={async()=>{if(voting)return;setVoting(true);playSound('vote');await onVote(selected==='__skip__'?null:selected);setVoting(false);}} disabled={voting}
@@ -879,7 +887,14 @@ function WinScreen({game,isHost,onNewGame,onLeave}){
   const isCrewWin=game.winner==='crew';
   const imposters=game.imposters||[];
   const wins=game.wins||{crew:0,imposters:0};
+  const players=game.players||{};
+  const votes=game.votes||{};
+  const allPlayers=Object.keys(players);
   useEffect(()=>{playSound(isCrewWin?'crew_win':'imp_win');},[]);
+
+  // Build vote summary: who voted for whom
+  const voteSummary=Object.entries(votes).map(([voter,votedFor])=>({voter,votedFor:votedFor==='skip'?'Skip':votedFor}));
+
   return<Page className="justify-center">
     <div className="celebrate flex flex-col items-center">
       <Crew color={isCrewWin?'#06b6d4':'#ef4444'} size={100}/>
@@ -887,15 +902,45 @@ function WinScreen({game,isHost,onNewGame,onLeave}){
         {isCrewWin?'CREWMATES WIN!':'IMPOSTERS WIN!'}
       </h1>
     </div>
-    <div className="mt-5 w-full max-w-sm bg-slate-800/80 rounded-2xl p-4 border border-slate-700 text-center">
-      <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-1">Imposters were</p>
-      {imposters.map(n=><p key={n} className="text-red-400 font-title text-2xl">{n}</p>)}
+
+    {/* Imposters reveal */}
+    <div className="mt-5 w-full max-w-sm bg-slate-800/80 rounded-2xl p-4 border border-red-900/50 text-center">
+      <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">🔴 Imposters</p>
+      {imposters.map(n=><div key={n} className="flex items-center justify-center gap-2 mb-1"><Crew color={pcolor(players,n)} size={24}/><p className="text-red-400 font-title text-xl">{n}</p></div>)}
     </div>
+
+    {/* All roles */}
+    <div className="mt-3 w-full max-w-sm bg-slate-800/60 rounded-2xl p-3 border border-slate-700">
+      <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">All Roles</p>
+      {allPlayers.map(n=>{
+        const isImp=imposters.includes(n);
+        return<div key={n} className="flex items-center gap-2 py-1.5 px-1">
+          <Crew color={pcolor(players,n)} size={24}/>
+          <span className="text-slate-300 text-sm flex-1">{n}</span>
+          <span className={`text-xs font-bold ${isImp?'text-red-400':'text-cyan-400'}`}>{isImp?'IMPOSTER':'CREWMATE'}</span>
+        </div>;
+      })}
+    </div>
+
+    {/* Vote recap */}
+    {voteSummary.length>0&&<div className="mt-3 w-full max-w-sm bg-slate-800/60 rounded-2xl p-3 border border-slate-700">
+      <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Last Vote</p>
+      {voteSummary.map(({voter,votedFor})=>(
+        <div key={voter} className="flex items-center gap-1 py-1 text-xs">
+          <span className="text-slate-400 flex-1">{voter}</span>
+          <span className="text-slate-600">→</span>
+          <span className={`font-semibold ml-1 ${votedFor==='Skip'?'text-yellow-400':'text-white'}`}>{votedFor}</span>
+        </div>
+      ))}
+    </div>}
+
+    {/* Win tally */}
     <div className="mt-3 w-full max-w-sm bg-slate-800/60 rounded-xl px-4 py-2 border border-slate-700 flex justify-around text-center">
       <div><p className="text-cyan-400 font-title text-2xl">{wins.crew}</p><p className="text-slate-400 text-xs">Crew wins</p></div>
       <div className="w-px bg-slate-700"/>
       <div><p className="text-red-400 font-title text-2xl">{wins.imposters}</p><p className="text-slate-400 text-xs">Imposter wins</p></div>
     </div>
+
     {isHost?<button onClick={onNewGame} className="mt-5 w-full max-w-sm bg-cyan-600 text-white font-title text-2xl py-4 rounded-2xl btn">NEW GAME</button>
       :<p className="mt-5 text-slate-400 text-sm">Waiting for host to start a new game…</p>}
     <button onClick={onLeave} className="mt-3 text-slate-500 text-sm hover:text-slate-300 btn underline">Leave room</button>
@@ -948,6 +993,7 @@ function App(){
   const lastGhostRef=useRef(0);
   const [ghostOverlay,setGhostOverlay]=useState(null);
   const [errMsg,setErrMsg]=useState(null);
+  const [hostToast,setHostToast]=useState(false);
   const errTimerRef=useRef(null);
   const showErr=(msg)=>{setErrMsg(msg);clearTimeout(errTimerRef.current);errTimerRef.current=setTimeout(()=>setErrMsg(null),4000);};
 
@@ -998,6 +1044,7 @@ function App(){
         if(newHost&&newHost===myName){
           db.ref(`games/${roomCode}/host`).set(myName);
           setIsHost(true);localStorage.setItem('aul_host','true');
+          setHostToast(true);setTimeout(()=>setHostToast(false),4000);
         }
       }
       // Synced sounds — play on ALL devices when triggered
@@ -1045,6 +1092,16 @@ function App(){
     },500);
     return()=>clearInterval(iv);
   },[game?.phase,game?.meeting?.discussionEndsAt,roomCode]);
+
+  // Vote auto-advance — host watches votes and moves to results when everyone has voted
+  useEffect(()=>{
+    if(game?.phase!=='voting'||!isHost)return;
+    const alive=getAlive(game?.players||{});
+    const votes=game?.votes||{};
+    if(alive.length>0&&alive.every(n=>votes[n]!==undefined)){
+      db.ref(`games/${roomCode}`).update({phase:'results',votes});
+    }
+  },[game?.phase,game?.votes,game?.players,isHost,roomCode]);
 
   // Sabotage auto-clear (all clients try; idempotent — survives host refresh)
   useEffect(()=>{
@@ -1102,6 +1159,9 @@ function App(){
   };
 
   const leaveGame=()=>{
+    if(game?.phase&&game.phase!=='lobby'&&game.phase!=='win'){
+      if(!window.confirm('Leave this game? You will miss the rest of the round.'))return;
+    }
     ['aul_name','aul_room','aul_host','aul_game'].forEach(k=>localStorage.removeItem(k));
     setJoined(false);setRoomCode('');setIsHost(false);setGame(null);setMyName('');setShowResume(false);
   };
@@ -1195,12 +1255,6 @@ function App(){
     if(!me?.alive||me?.isSpectator)return;
     try{
       await db.ref(`games/${roomCode}/votes/${myName}`).set(votedFor||'skip');
-      const snap=await db.ref(`games/${roomCode}`).once('value');
-      const g=snap.val();
-      if(g.phase!=='voting')return;
-      const alive=getAlive(g.players);
-      const votes={...(g.votes||{}),[myName]:votedFor||'skip'};
-      if(alive.every(n=>votes[n]!==undefined))await db.ref(`games/${roomCode}`).update({phase:'results',votes});
     }catch(e){showErr('Vote failed. Check connection.');}
   };
 
@@ -1270,6 +1324,7 @@ function App(){
   return<><Starfield/><SabotageOverlay active={sabActive} isImp={isImp}/>
     {ghostOverlay&&<GhostActionOverlay overlay={ghostOverlay} onDone={()=>setGhostOverlay(null)}/>}
     {errMsg&&<div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-red-900/95 border border-red-600 text-red-200 text-sm font-semibold px-5 py-3 rounded-2xl shadow-xl slide-up max-w-xs text-center pointer-events-none">{errMsg}</div>}
+    {hostToast&&<div className="fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-yellow-400 text-black text-sm font-bold px-5 py-3 rounded-2xl shadow-xl slide-up max-w-xs text-center pointer-events-none">🎮 You are now the Host!</div>}
     {roomCode&&<div className="fixed top-3 right-3 z-40 bg-slate-900/90 border border-slate-600 rounded-xl px-3 py-1.5 flex flex-col items-end" style={{backdropFilter:'blur(6px)'}}>
       <span className="text-slate-500 text-xs leading-none mb-0.5">Room Code</span>
       <span className="font-title text-xl text-white leading-none tracking-widest">{roomCode}</span>
