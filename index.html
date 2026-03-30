@@ -946,6 +946,19 @@ function App(){
   const lastGhostRef=useRef(0);
   const [ghostOverlay,setGhostOverlay]=useState(null);
 
+  // Keep screen awake while app is open
+  useEffect(()=>{
+    let lock=null;
+    const acquire=async()=>{
+      if(!('wakeLock' in navigator))return;
+      try{lock=await navigator.wakeLock.request('screen');}catch(e){}
+    };
+    acquire();
+    const onVisible=()=>{if(document.visibilityState==='visible')acquire();};
+    document.addEventListener('visibilitychange',onVisible);
+    return()=>{document.removeEventListener('visibilitychange',onVisible);lock?.release();};
+  },[]);
+
   // Auto-rejoin on refresh — show resume screen if mid-game
   useEffect(()=>{
     const n=localStorage.getItem('aul_name'),r=localStorage.getItem('aul_room'),h=localStorage.getItem('aul_host')==='true';
