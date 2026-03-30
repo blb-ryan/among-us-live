@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Among Us — Live Edition</title>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Bangers&family=Inter:wght@400;600;700;900&display=swap');
+*{-webkit-tap-highlight-color:transparent;user-select:none}
+body{margin:0;background:#080c18;overflow-x:hidden;font-family:'Inter',sans-serif}
+.font-title{font-family:'Bangers',cursive;letter-spacing:2px}
+@keyframes starFloat{0%{opacity:.4;transform:translateY(0)}50%{opacity:.9}100%{opacity:.4;transform:translateY(-100vh)}}
+.star{position:fixed;border-radius:50%;background:#fff;pointer-events:none;animation:starFloat linear infinite}
+@keyframes revealPop{0%{transform:scale(.25);opacity:0}65%{transform:scale(1.12)}100%{transform:scale(1);opacity:1}}
+.reveal-pop{animation:revealPop .5s cubic-bezier(.34,1.56,.64,1) forwards}
+@keyframes pulseGlow{0%,100%{box-shadow:0 0 18px rgba(239,68,68,.35)}50%{box-shadow:0 0 55px rgba(239,68,68,.9)}}
+.pulse-glow{animation:pulseGlow 1.5s ease-in-out infinite}
+@keyframes slideUp{from{transform:translateY(18px);opacity:0}to{transform:translateY(0);opacity:1}}
+.slide-up{animation:slideUp .3s ease-out forwards}
+@keyframes celebrate{0%,100%{transform:scale(1) rotate(-1deg)}50%{transform:scale(1.07) rotate(1deg)}}
+.celebrate{animation:celebrate .65s ease-in-out infinite}
+@keyframes sabBlur{0%{backdrop-filter:blur(0px);background:rgba(0,0,0,0)}20%{backdrop-filter:blur(28px);background:rgba(15,0,0,.55)}50%{backdrop-filter:blur(6px);background:rgba(0,0,0,.1)}75%{backdrop-filter:blur(32px);background:rgba(15,0,0,.6)}100%{backdrop-filter:blur(0px);background:rgba(0,0,0,0)}}
+@keyframes sabTextPulse{0%,100%{opacity:0;transform:scale(.8)}30%,70%{opacity:1;transform:scale(1)}}
+.sab-blur-overlay{animation:sabBlur 1.25s ease-in-out 4 forwards}
+.sab-text{animation:sabTextPulse 1.25s ease-in-out 4}
+@keyframes timerPulse{0%,100%{color:#f87171}50%{color:#fca5a5}}
+.timer-urgent{animation:timerPulse .5s ease-in-out infinite}
+.btn{transition:transform .1s,opacity .1s}
+.btn:active{transform:scale(.94)}
+.btn:disabled{opacity:.5}
+input,textarea{user-select:auto!important;-webkit-user-select:auto!important}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useMemo,useCallback}=React;
+
+/* ── Firebase ── */
+const FB={
+  apiKey:"AIzaSyBiAuQSxcZohp-MIc_hcX7z73kh32lbDGI",
+  authDomain:"among-us-live-752a8.firebaseapp.com",
+  databaseURL:"https://among-us-live-752a8-default-rtdb.firebaseio.com",
+  projectId:"among-us-live-752a8",
+  storageBucket:"among-us-live-752a8.firebasestorage.app",
+  messagingSenderId:"1086903914347",
+  appId:"1:1086903914347:web:4944981678f185233c462e"
+};
+if(!firebase.apps.length) firebase.initializeApp(FB);
+const db=firebase.database();
+
+/* ── Ghost Sabotage Actions ── */
+const GHOST_ACTIONS=[
+  "Make a lion ROAR as loud as you can 🦁",
+  "Clap your hands 5 times as fast as possible 👏",
+  "SCREAM 'BANANAS!' at the top of your lungs 🍌",
+  "Do your best evil villain laugh for 3 seconds 😈",
+  "Bark like an angry dog 3 times 🐶",
+  "Yell 'IT WASN'T ME!' and point at someone 😱",
+  "Stand up, spin around once, sit back down 🌀",
+  "Slap the table twice and say 'IMPOSTER!' 👋",
+  "Make the loudest sneeze sound you can 🤧",
+  "Hum the Among Us theme song for 5 seconds 🎵",
+  "Say 'emergency meeting' in the slowest voice possible 🐢",
+  "Meow like a confused cat three times 🐱",
+  "Make explosion sounds with your mouth 💥",
+  "Count to 5 out loud in a baby voice 👶",
+  "Whistle something dramatic and point at the ceiling 🎶",
+  "Gasp dramatically and cover your mouth 😮",
+  "Do your best robot impression for 4 seconds 🤖",
+  "Say your own name backwards three times out loud 🔄",
+  "Pat your head and rub your belly for 5 seconds 🙃",
+  "Make a fart sound with your mouth and look innocent 💨",
+  "Pretend to sneeze on the person next to you 🫧",
+  "Yell 'RED IS SUS!' as dramatically as possible 🔴",
+  "Beat your chest like a gorilla twice 🦍",
+  "Do three jumping jacks right now 🏃",
+];
+
+/* ── Constants ── */
+const COLORS={
+  red:'#ef4444',orange:'#f97316',yellow:'#eab308',lime:'#84cc16',
+  cyan:'#06b6d4',blue:'#3b82f6',purple:'#a855f7',pink:'#ec4899',
+  white:'#e2e8f0',brown:'#d97706',teal:'#14b8a6',maroon:'#be123c'
+};
+const COLOR_KEYS=Object.keys(COLORS);
+const DISCUSSION_MS=120000;
+
+/* ── Audio ── */
+let _actx=null,_audioUnlocked=false;
+function unlockAudio(){
+  if(_audioUnlocked)return;
+  try{
+    if(!_actx)_actx=new(window.AudioContext||window.webkitAudioContext)();
+    // Silent buffer — unlocks Web Audio on iOS
+    const buf=_actx.createBuffer(1,1,22050);
+    const src=_actx.createBufferSource();src.buffer=buf;src.connect(_actx.destination);src.start(0);
+    _actx.resume().then(()=>{_audioUnlocked=true;});
+    // Unlock speechSynthesis on iOS
+    if(window.speechSynthesis){const u=new SpeechSynthesisUtterance('');u.volume=0;window.speechSynthesis.speak(u);}
+  }catch(e){}
+}
+document.addEventListener('touchstart',unlockAudio,true);
+document.addEventListener('click',unlockAudio,true);
+function getCtx(){
+  if(!_actx)_actx=new(window.AudioContext||window.webkitAudioContext)();
+  if(_actx.state==='suspended')_actx.resume();
+  return _actx;
+}
+function beep(freq,type='sine',vol=.25,dur=.3,start=0){
+  try{
+    const ctx=getCtx(),now=ctx.currentTime+0.05+start;
+    const g=ctx.createGain();
+    g.gain.setValueAtTime(vol,now);
+    g.gain.exponentialRampToValueAtTime(.001,now+dur);
+    g.connect(ctx.destination);
+    const o=ctx.createOscillator();
+    o.type=type;o.frequency.value=freq;
+    o.connect(g);o.start(now);o.stop(now+dur);
+  }catch(e){}
+}
+function playSound(type){
+  try{
+    switch(type){
+      case'reveal':[523,659,784,1047].forEach((f,i)=>beep(f,'sine',.22,.45,i*.18));break;
+      case'vote':beep(180,'square',.35,.18);beep(120,'square',.2,.12,.08);break;
+      case'eject':{
+        const ctx=getCtx(),now=ctx.currentTime;
+        const g=ctx.createGain();g.gain.setValueAtTime(.35,now);g.gain.linearRampToValueAtTime(0,now+1.8);g.connect(ctx.destination);
+        const o=ctx.createOscillator();o.type='sawtooth';o.frequency.setValueAtTime(600,now);o.frequency.exponentialRampToValueAtTime(30,now+1.8);o.connect(g);o.start();o.stop(now+1.8);
+        break;}
+      case'crew_win':[523,659,784,659,784,1047].forEach((f,i)=>beep(f,'triangle',.2,.5,i*.15));break;
+      case'imp_win':[300,250,200,150,100].forEach((f,i)=>beep(f,'sawtooth',.28,.5,i*.2));break;
+      case'meeting':beep(1200,'sine',.45,1.5);beep(800,'sine',.3,2,.1);beep(1600,'sine',.2,.8,.4);break;
+      case'kick':beep(220,'square',.2,.15);beep(160,'square',.15,.1,.1);break;
+    }
+  }catch(e){}
+}
+function playAlarm(sec=3.5){
+  try{
+    const ctx=getCtx(),now=ctx.currentTime+0.05,end=now+sec;
+    const g=ctx.createGain();g.gain.setValueAtTime(.4,now);g.gain.linearRampToValueAtTime(0,end);g.connect(ctx.destination);
+    const o=ctx.createOscillator();o.type='sawtooth';o.connect(g);
+    const n=Math.floor(sec*2);
+    for(let i=0;i<n*2;i++)o.frequency.linearRampToValueAtTime(i%2===0?820:460,now+(i*sec)/(n*2));
+    o.start();o.stop(end);
+    const o2=ctx.createOscillator();o2.type='square';o2.frequency.value=220;
+    const g2=ctx.createGain();g2.gain.setValueAtTime(.1,now);g2.gain.linearRampToValueAtTime(0,end);
+    o2.connect(g2);g2.connect(ctx.destination);o2.start();o2.stop(end);
+  }catch(e){}
+}
+function playMeetingAlarm(){
+  try{
+    const ctx=getCtx(),now=ctx.currentTime+0.05,dur=5;
+    const master=ctx.createGain();master.gain.setValueAtTime(.55,now);master.gain.linearRampToValueAtTime(.2,now+dur);master.connect(ctx.destination);
+    // Classic two-tone klaxon — steady, authoritative, rhythmic
+    const o1=ctx.createOscillator();o1.type='square';
+    const steps=24;
+    for(let i=0;i<steps;i++)o1.frequency.setValueAtTime(i%2===0?560:440,now+(i*dur)/steps);
+    o1.connect(master);o1.start(now);o1.stop(now+dur);
+    // Upper harmony layer
+    const o2=ctx.createOscillator();o2.type='sine';
+    for(let i=0;i<steps;i++)o2.frequency.setValueAtTime(i%2===0?840:660,now+(i*dur)/steps);
+    const g2=ctx.createGain();g2.gain.value=.3;
+    o2.connect(g2);g2.connect(master);o2.start(now);o2.stop(now+dur);
+    // Pulsing gated feel
+    const gateGain=ctx.createGain();
+    const gateSteps=steps*2;
+    for(let i=0;i<gateSteps;i++)gateGain.gain.setValueAtTime(i%4<3?1:0,now+(i*dur)/gateSteps);
+    master.disconnect();master.connect(gateGain);gateGain.connect(ctx.destination);
+  }catch(e){}
+  // Voice: "Emergency Meeting" x4
+  try{
+    if(window.speechSynthesis){
+      window.speechSynthesis.cancel();
+      for(let i=0;i<4;i++){
+        const u=new SpeechSynthesisUtterance('Emergency Meeting');
+        u.rate=0.88;u.pitch=1.1;u.volume=1;
+        window.speechSynthesis.speak(u);
+      }
+    }
+  }catch(e){}
+}
+function playSabotageAlarm(){
+  try{
+    const ctx=getCtx(),now=ctx.currentTime+0.05,dur=5;
+    const comp=ctx.createDynamicsCompressor();
+    comp.threshold.value=-4;comp.ratio.value=8;comp.connect(ctx.destination);
+    const master=ctx.createGain();master.gain.setValueAtTime(.9,now);master.gain.linearRampToValueAtTime(.3,now+dur);master.connect(comp);
+    // Wild chaotic siren — rapid jumps between dissonant freqs
+    const o1=ctx.createOscillator();o1.type='square';
+    const f1=[1400,280,2000,180,1700,300,2400,200,1200,350,2800,160];
+    for(let i=0;i<32;i++)o1.frequency.setValueAtTime(f1[i%f1.length],now+(i*dur)/32);
+    o1.connect(master);o1.start(now);o1.stop(now+dur);
+    // Low pulsing rumble
+    const o2=ctx.createOscillator();o2.type='sawtooth';o2.frequency.value=55;
+    const g2=ctx.createGain();
+    for(let i=0;i<20;i++)g2.gain.setValueAtTime(i%2===0?.7:.02,now+(i*dur)/20);
+    o2.connect(g2);g2.connect(master);o2.start(now);o2.stop(now+dur);
+    // High screech sweeping through dissonant pitches
+    const o3=ctx.createOscillator();o3.type='sawtooth';
+    const f3=[3000,700,3500,500,4000,900,2500,600];
+    for(let i=0;i<24;i++)o3.frequency.setValueAtTime(f3[i%f3.length],now+(i*dur)/24);
+    const g3=ctx.createGain();g3.gain.value=.5;
+    o3.connect(g3);g3.connect(master);o3.start(now+.05);o3.stop(now+dur);
+    // Sub-bass gut-punch at the start
+    const o4=ctx.createOscillator();o4.type='sine';o4.frequency.value=38;
+    const g4=ctx.createGain();
+    for(let i=0;i<10;i++)g4.gain.setValueAtTime(i%2===0?1.2:0,now+(i*(dur/2))/10);
+    g4.gain.setValueAtTime(0,now+dur/2);
+    o4.connect(g4);g4.connect(master);o4.start(now);o4.stop(now+dur/2);
+  }catch(e){}
+}
+
+function playGhostSound(){
+  try{
+    const ctx=getCtx(),now=ctx.currentTime+0.05,dur=2;
+    // Spooky theremin-style wobble
+    const o=ctx.createOscillator();o.type='sine';
+    o.frequency.setValueAtTime(300,now);
+    o.frequency.linearRampToValueAtTime(600,now+0.3);
+    o.frequency.linearRampToValueAtTime(200,now+0.8);
+    o.frequency.linearRampToValueAtTime(500,now+1.2);
+    o.frequency.linearRampToValueAtTime(150,now+dur);
+    const g=ctx.createGain();g.gain.setValueAtTime(0,now);g.gain.linearRampToValueAtTime(.35,now+.1);g.gain.linearRampToValueAtTime(0,now+dur);
+    o.connect(g);g.connect(ctx.destination);o.start(now);o.stop(now+dur);
+    // High eerie shimmer
+    const o2=ctx.createOscillator();o2.type='sine';
+    o2.frequency.setValueAtTime(1200,now);o2.frequency.linearRampToValueAtTime(800,now+dur);
+    const g2=ctx.createGain();g2.gain.setValueAtTime(0,now);g2.gain.linearRampToValueAtTime(.12,now+.15);g2.gain.linearRampToValueAtTime(0,now+dur);
+    o2.connect(g2);g2.connect(ctx.destination);o2.start(now);o2.stop(now+dur);
+  }catch(e){}
+}
+/* ── Utils ── */
+function shuffle(arr){const a=[...arr];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+function genCode(){const c='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';return Array.from({length:4},()=>c[Math.floor(Math.random()*c.length)]).join('');}
+function getActive(players){if(!players)return[];return Object.entries(players).filter(([,p])=>!p.isSpectator).map(([n])=>n);}
+function getAlive(players){if(!players)return[];return Object.entries(players).filter(([,p])=>p.alive&&!p.isSpectator).map(([n])=>n);}
+function checkWin(players,imposters){
+  if(!players||!imposters)return null;
+  const alive=getAlive(players);
+  const ai=imposters.filter(n=>alive.includes(n));
+  const ac=alive.filter(n=>!imposters.includes(n));
+  if(ai.length===0)return'crew';
+  if(ai.length>=ac.length)return'imposters';
+  return null;
+}
+function pcolor(players,name){return COLORS[players?.[name]?.color]||'#94a3b8';}
+function fmtMs(ms){const s=Math.max(0,Math.ceil(ms/1000));return`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;}
+
+/* ── Visual Components ── */
+function Starfield(){
+  const stars=useMemo(()=>Array.from({length:55},(_,i)=>({id:i,left:Math.random()*100,sz:Math.random()*2.5+.4,dur:Math.random()*22+14,del:Math.random()*22,op:Math.random()*.45+.3})),[]);
+  return<div className="fixed inset-0 overflow-hidden pointer-events-none z-0">{stars.map(s=><div key={s.id} className="star" style={{left:`${s.left}%`,bottom:'-4px',width:`${s.sz}px`,height:`${s.sz}px`,opacity:s.op,animationDuration:`${s.dur}s`,animationDelay:`${s.del}s`}}/>)}</div>;
+}
+
+function Crew({color='#06b6d4',size=72,ghost=false}){
+  return<svg width={size} height={size} viewBox="0 0 100 120" fill="none" style={{opacity:ghost?.45:1}}>
+    <ellipse cx="50" cy="44" rx="30" ry="37" fill={color}/>
+    <rect x="20" y="50" width="60" height="45" rx="14" fill={color}/>
+    <ellipse cx="56" cy="34" rx="18" ry="13" fill={ghost?"#334155":"#c8e6f7"} opacity=".9"/>
+    <rect x="10" y="70" width="14" height="20" rx="7" fill={color}/>
+    <ellipse cx="35" cy="102" rx="10" ry="8" fill={color}/>
+    <ellipse cx="65" cy="102" rx="10" ry="8" fill={color}/>
+  </svg>;
+}
+
+function ColorPicker({current,taken,onChange}){
+  return<div className="flex flex-wrap gap-2 justify-center mt-2">
+    {COLOR_KEYS.map(k=>{
+      const hex=COLORS[k];
+      const isTaken=taken.includes(k)&&k!==current;
+      const isSelected=k===current;
+      return<button key={k} onClick={()=>!isTaken&&onChange(k)}
+        className={`w-8 h-8 rounded-full btn transition border-2 ${isSelected?'border-white scale-110':'border-transparent'} ${isTaken?'opacity-25 cursor-not-allowed':''}`}
+        style={{background:hex}}>
+        {isSelected&&<span className="text-white text-xs flex items-center justify-center h-full font-bold">✓</span>}
+      </button>;
+    })}
+  </div>;
+}
+
+function PlayerChip({name,color,isHost,isYou,isSpectator,isGhost,small=false}){
+  const sz=small?32:44;
+  return<div className="flex items-center gap-2">
+    <Crew color={color||'#94a3b8'} size={sz} ghost={isGhost}/>
+    <span className={`font-semibold ${small?'text-sm':'text-base'} text-white`}>{name}</span>
+    {isHost&&<span className="text-yellow-400 text-xs">(host)</span>}
+    {isYou&&<span className="text-cyan-400 text-xs">(you)</span>}
+    {isSpectator&&<span className="text-slate-400 text-xs">(spectator)</span>}
+    {isGhost&&<span className="text-slate-500 text-xs">(dead)</span>}
+  </div>;
+}
+
+const Page=({children,className=''})=><div className={`min-h-screen flex flex-col items-center px-4 py-6 relative z-10 ${className}`}>{children}</div>;
+
+/* ── Sabotage Overlay ── */
+function SabotageOverlay({active,isImp}){
+  if(!active||isImp)return null;
+  return<div className="fixed inset-0 z-50 sab-blur-overlay" style={{pointerEvents:'all',touchAction:'none'}}>
+    <div className="absolute inset-0 flex flex-col items-center justify-center select-none">
+      <p className="font-title text-7xl text-red-400 sab-text" style={{textShadow:'0 0 50px #ef4444,0 0 100px #ef4444'}}>⚡ SABOTAGE!</p>
+      <p className="text-red-300 text-lg font-bold mt-3 sab-text" style={{animationDelay:'.15s'}}>Vision impaired…</p>
+    </div>
+  </div>;
+}
+
+/* ── JOIN ── */
+function JoinScreen({onHost,onJoin}){
+  const [name,setName]=useState('');
+  const [code,setCode]=useState(()=>{const p=new URLSearchParams(window.location.search);return(p.get('room')||'').toUpperCase();});
+  const [mode,setMode]=useState(()=>{const p=new URLSearchParams(window.location.search);return p.get('room')?'join':'';});
+  const [spectator,setSpectator]=useState(false);
+  const [err,setErr]=useState('');
+  const [loading,setLoading]=useState(false);
+  const doHost=async()=>{if(!name.trim()){setErr('Enter your name');return;}setLoading(true);setErr('');await onHost(name.trim());setLoading(false);};
+  const doJoin=async()=>{if(!name.trim()){setErr('Enter your name');return;}if(!code.trim()){setErr('Enter a room code');return;}setLoading(true);setErr('');const e=await onJoin(name.trim(),code.trim().toUpperCase(),spectator);if(e)setErr(e);setLoading(false);};
+  return<Page>
+    <div className="flex flex-col items-center mb-8">
+      <Crew color="#ef4444" size={72}/>
+      <h1 className="font-title text-5xl text-red-500 mt-2 tracking-wider">AMONG US</h1>
+      <p className="text-cyan-400 text-sm font-semibold mt-1">LIVE EDITION</p>
+    </div>
+    <div className="w-full max-w-sm space-y-3">
+      <input value={name} onChange={e=>setName(e.target.value)} placeholder="Your name…"
+        className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white text-lg placeholder-slate-500 focus:outline-none focus:border-cyan-400"
+        autoComplete="off" autoCapitalize="words" maxLength={20}/>
+      {err&&<p className="text-red-400 text-sm text-center">{err}</p>}
+      {mode===''&&<>
+        <button onClick={()=>{setMode('host');setErr('');}} className="w-full bg-red-600 text-white font-title text-2xl py-4 rounded-2xl btn pulse-glow border-2 border-red-400">HOST A GAME</button>
+        <button onClick={()=>{setMode('join');setErr('');}} className="w-full bg-slate-700 text-white font-title text-2xl py-4 rounded-2xl btn border-2 border-slate-500">JOIN A GAME</button>
+      </>}
+      {mode==='host'&&<>
+        <button onClick={doHost} disabled={loading} className="w-full bg-red-600 text-white font-title text-2xl py-4 rounded-2xl btn pulse-glow disabled:opacity-50">
+          {loading?'CREATING…':'CREATE ROOM'}
+        </button>
+        <button onClick={()=>setMode('')} className="w-full text-slate-400 py-2 text-sm">← Back</button>
+      </>}
+      {mode==='join'&&<>
+        <input value={code} onChange={e=>setCode(e.target.value.toUpperCase())} placeholder="Room code (e.g. AB3X)"
+          className="w-full bg-slate-800 border border-slate-600 rounded-xl px-4 py-3 text-white text-2xl text-center font-title tracking-widest placeholder-slate-500 focus:outline-none focus:border-cyan-400"
+          maxLength={4} autoComplete="off"/>
+        <label className="flex items-center gap-3 px-1 cursor-pointer" onClick={()=>setSpectator(s=>!s)}>
+          <div className={`w-10 h-6 rounded-full transition-colors ${spectator?'bg-cyan-600':'bg-slate-700'} relative flex-shrink-0`}>
+            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${spectator?'translate-x-5':'translate-x-1'}`}/>
+          </div>
+          <span className="text-slate-300 text-sm">Join as spectator (watch, don't play)</span>
+        </label>
+        <button onClick={doJoin} disabled={loading} className="w-full bg-cyan-600 text-white font-title text-2xl py-4 rounded-2xl btn disabled:opacity-50">
+          {loading?'JOINING…':'JOIN ROOM'}
+        </button>
+        <button onClick={()=>setMode('')} className="w-full text-slate-400 py-2 text-sm">← Back</button>
+      </>}
+    </div>
+  </Page>;
+}
+
+/* ── LOBBY ── */
+function LobbyScreen({game,myName,roomCode,isHost,onStart,onLeave,onKick,onColorChange,onImposterCountChange}){
+  const players=game.players||{};
+  const pnames=Object.entries(players).sort(([,a],[,b])=>a.joinedAt-b.joinedAt).map(([n])=>n);
+  const takenColors=Object.values(players).map(p=>p.color).filter(Boolean);
+  const wins=game.wins||{crew:0,imposters:0};
+  const impCount=game.imposterCount||'auto';
+  const joinUrl=`${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+  const qrUrl=`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(joinUrl)}&bgcolor=080c18&color=06b6d4&qzone=2`;
+  const [copied,setCopied]=useState(false);
+  const copy=()=>{navigator.clipboard?.writeText(joinUrl).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2e3)}).catch(()=>{});};
+  const activePlayers=getActive(players);
+  const canStart=isHost&&activePlayers.length>=4;
+
+  return<Page>
+    <div className="w-full max-w-sm">
+      {/* Header */}
+      <div className="text-center mb-4">
+        <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1">Room Code</p>
+        <p className="font-title text-6xl text-cyan-400 tracking-widest">{roomCode}</p>
+        {(wins.crew>0||wins.imposters>0)&&<p className="text-slate-400 text-xs mt-1">Crew {wins.crew} — Imposters {wins.imposters}</p>}
+      </div>
+
+      {/* QR code */}
+      <div className="flex flex-col items-center mb-4">
+        <img src={qrUrl} alt="Join QR" className="rounded-xl border border-slate-700" style={{width:120,height:120}}/>
+        <button onClick={copy} className="mt-1 text-slate-400 text-xs hover:text-cyan-400 transition underline btn">{copied?'Copied!':'Copy join link'}</button>
+      </div>
+
+      {/* Host controls */}
+      {isHost&&<div className="bg-slate-800/60 rounded-2xl p-3 mb-3 border border-slate-700">
+        <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Settings</p>
+        <div className="flex items-center gap-2">
+          <span className="text-slate-300 text-sm flex-1">Imposters</span>
+          {['auto','1','2'].map(v=><button key={v} onClick={()=>onImposterCountChange(v)}
+            className={`px-3 py-1 rounded-lg text-sm font-bold btn transition ${impCount===v?'bg-red-600 text-white':'bg-slate-700 text-slate-300'}`}>
+            {v==='auto'?'Auto':v}
+          </button>)}
+        </div>
+      </div>}
+
+      {/* Players */}
+      <div className="bg-slate-800/60 rounded-2xl p-3 mb-4 border border-slate-700">
+        <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Players ({pnames.length})</p>
+        {pnames.map((n,i)=>(
+          <div key={n} className="slide-up" style={{animationDelay:`${i*40}ms`}}>
+            <div className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-slate-700/40">
+              <PlayerChip name={n} color={pcolor(players,n)} isHost={n===game.host} isYou={n===myName} isSpectator={players[n]?.isSpectator}/>
+              {isHost&&n!==myName&&game.phase==='lobby'&&(
+                <button onClick={()=>onKick(n)} className="text-slate-500 hover:text-red-400 btn text-xl w-8 h-8 flex items-center justify-center">×</button>
+              )}
+            </div>
+            {n===myName&&<ColorPicker current={players[n]?.color} taken={takenColors} onChange={c=>onColorChange(c)}/>}
+          </div>
+        ))}
+      </div>
+
+      {!canStart&&isHost&&<p className="text-slate-500 text-center text-sm mb-3">Need {Math.max(0,4-activePlayers.length)} more player{4-activePlayers.length!==1?'s':''}</p>}
+      {canStart&&<button onClick={onStart} className="w-full bg-red-600 text-white font-title text-2xl py-4 rounded-2xl btn pulse-glow mb-3">START GAME</button>}
+      {!isHost&&<p className="text-slate-400 text-center text-sm mb-4">Waiting for host to start…</p>}
+      <button onClick={onLeave} className="w-full text-slate-500 text-sm py-2 hover:text-slate-300 btn">Leave game</button>
+    </div>
+  </Page>;
+}
+
+/* ── ROLES ── */
+function RolesScreen({game,myName,isHost,onRevealDone,onStartPlaying}){
+  const [revealed,setRevealed]=useState(false);
+  const imposters=game.imposters||[];
+  const isImp=imposters.includes(myName);
+  const partner=isImp?imposters.find(n=>n!==myName):null;
+  const players=game.players||{};
+  const revealedCount=Object.values(players).filter(p=>p.roleRevealed).length;
+  const total=Object.keys(players).length;
+  const allRevealed=revealedCount===total;
+
+  const handleReveal=async()=>{
+    playSound('reveal');
+    setRevealed(true);
+    await onRevealDone();
+  };
+
+  if(players[myName]?.isSpectator) return<Page className="justify-center">
+    <Crew color="#475569" size={80} ghost/>
+    <h2 className="font-title text-3xl text-slate-400 mt-4">SPECTATING</h2>
+    <p className="text-slate-500 mt-2 text-center text-sm">Roles are being assigned.<br/>Wait for the game to start.</p>
+    <div className="mt-6 w-full max-w-sm bg-slate-800/60 rounded-2xl p-3 border border-slate-700 text-center">
+      <p className="text-slate-400 text-xs">{revealedCount}/{total} players have seen their role</p>
+    </div>
+  </Page>;
+
+  return<Page className="justify-center">
+    {!revealed?<>
+      <p className="text-white font-title text-3xl mb-1">{myName}</p>
+      <p className="text-slate-500 text-sm mb-10 text-center">Make sure nobody else can see your screen</p>
+      <button onClick={handleReveal}
+        className="bg-slate-700 text-white font-title text-2xl px-10 py-6 rounded-2xl btn border-2 border-slate-500 shadow-2xl hover:bg-slate-600">
+        TAP TO REVEAL ROLE
+      </button>
+    </>:<div className="flex flex-col items-center reveal-pop w-full max-w-sm">
+      <Crew color={isImp?'#ef4444':'#06b6d4'} size={90}/>
+      <h2 className={`font-title text-5xl mt-4 ${isImp?'text-red-500':'text-cyan-400'}`}>{isImp?'IMPOSTER':'CREWMATE'}</h2>
+      {partner&&<p className="text-red-300 text-lg font-semibold mt-2">Partner: <span className="text-red-400">{partner}</span></p>}
+      {!partner&&isImp&&<p className="text-red-300 text-sm mt-2 italic">Solo imposter — good luck.</p>}
+      <div className="mt-8 w-full bg-slate-800/60 rounded-2xl p-3 border border-slate-700 text-center">
+        <p className="text-slate-400 text-sm">{revealedCount}/{total} players have seen their role</p>
+      </div>
+      {isHost&&<button onClick={onStartPlaying}
+        className={`mt-5 w-full py-4 rounded-2xl btn font-title text-xl ${allRevealed?'bg-red-600 text-white pulse-glow':'bg-slate-700 text-slate-300 border border-slate-500'}`}>
+        {allRevealed?'START PLAYING':'Skip & Start Now'}
+      </button>}
+      {!isHost&&<p className="mt-5 text-slate-500 text-sm">{allRevealed?'Waiting for host to start…':'Others still revealing…'}</p>}
+    </div>}
+  </Page>;
+}
+
+/* ── PLAY ── */
+function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGhostSabotage,onNewGame}){
+  const players=game.players||{};
+  const alive=getAlive(players);
+  const isAlive=players[myName]?.alive;
+  const isSpectator=players[myName]?.isSpectator;
+  const imposters=game.imposters||[];
+  const isImp=imposters.includes(myName);
+  const myPlayer=players[myName]||{};
+  const sabLeft=myPlayer.sabotagesLeft||0;
+  const sabAvail=isImp&&isAlive&&sabLeft>0&&!(game.sabotage?.active);
+  const emerUsed=!!myPlayer.emergencyUsed;
+  const [pressed,setPressed]=useState(false);
+  const [picking,setPicking]=useState(false);
+  const [victim,setVictim]=useState(null);
+
+  const handleBodyTap=()=>{if(pressed||isSpectator)return;setPicking(true);};
+  const handleBodyConfirm=async()=>{if(pressed)return;setPressed(true);setPicking(false);await onBodyFound(victim);};
+  const handleEmer=async()=>{if(emerUsed)return;await onEmergency();};
+
+  const otherPlayers=Object.entries(players).filter(([n,p])=>n!==myName&&!p.isSpectator).map(([n])=>n);
+
+  if(!isAlive&&!isSpectator) return<GhostView game={game} myName={myName} label="You are dead. Spectating…" onGhostSabotage={onGhostSabotage} hostControls={isHost&&<button onClick={onNewGame} className="w-full text-left text-slate-300 text-sm py-1 btn hover:text-white">🔄 Reset / New Game</button>}/>;
+
+  return<Page className="justify-center">
+    {/* Victim picker overlay */}
+    {picking&&<div className="fixed inset-0 z-50 flex items-center justify-center p-5" style={{background:'rgba(0,0,0,.85)',backdropFilter:'blur(4px)'}}>
+      <div className="bg-slate-900 border-2 border-red-700 rounded-3xl p-5 w-full max-w-xs slide-up">
+        <h2 className="font-title text-3xl text-red-400 text-center mb-1">Body Found!</h2>
+        <p className="text-slate-400 text-sm text-center mb-4">Whose body did you find?</p>
+        <div className="space-y-2 mb-4 max-h-64 overflow-y-auto">
+          {otherPlayers.map(n=>(
+            <button key={n} onClick={()=>setVictim(n)}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl btn border-2 font-bold text-left
+                ${victim===n?'bg-red-900/60 border-red-500 text-red-300':'bg-slate-800 border-slate-600 text-white'}`}>
+              <Crew color={pcolor(players,n)} size={32}/>
+              <span>{n}</span>
+              {victim===n&&<span className="ml-auto text-red-400">✓</span>}
+            </button>
+          ))}
+        </div>
+        <button onClick={handleBodyConfirm} disabled={!victim}
+          className="w-full bg-red-600 text-white font-title text-xl py-3 rounded-xl btn disabled:opacity-40 mb-2">
+          Report Body
+        </button>
+        <button onClick={()=>{setPicking(false);setVictim(null);}} className="w-full text-slate-500 text-sm py-2 btn hover:text-slate-300">Cancel</button>
+      </div>
+    </div>}
+
+    {isSpectator&&<div className="mb-6 bg-slate-800/60 rounded-xl px-4 py-2 border border-slate-600"><p className="text-slate-400 text-sm font-semibold">👁 Spectating</p></div>}
+    <p className="text-slate-400 text-sm font-semibold mb-1">{alive.length} alive</p>
+    <p className="text-slate-500 text-xs mb-8">Anyone tap when a body is found</p>
+
+    {(isAlive||isSpectator)&&<button onClick={isAlive?handleBodyTap:undefined} disabled={pressed||isSpectator}
+      className={`w-64 h-64 rounded-full font-title text-3xl btn transition-all flex items-center justify-center leading-tight
+        ${isSpectator?'bg-slate-800 text-slate-600 border-4 border-slate-700':
+          pressed?'bg-red-900 text-red-400 border-4 border-red-700':
+          'bg-red-600 text-white border-4 border-red-400 pulse-glow shadow-2xl'}`}>
+      {pressed?<>REPORTED!</>:<>WE FOUND<br/>A BODY!</>}
+    </button>}
+
+    {isAlive&&!isSpectator&&<>
+      {!isImp&&<button onClick={handleEmer} disabled={emerUsed}
+        className={`mt-5 font-bold px-6 py-3 rounded-xl btn text-sm ${emerUsed?'bg-slate-800 text-slate-600 border border-slate-700 cursor-not-allowed':'bg-yellow-600 hover:bg-yellow-500 text-white'}`}>
+        🚨 {emerUsed?'Emergency Meeting (used)':'Emergency Meeting (1 left)'}
+      </button>}
+      {isImp&&<>
+        {sabAvail&&<button onClick={onSabotage}
+          className="mt-5 bg-slate-800 hover:bg-slate-700 text-red-400 font-bold px-6 py-3 rounded-xl btn border border-red-800 text-sm">
+          ⚡ Sabotage ({sabLeft} left)
+        </button>}
+        {!sabAvail&&game.sabotage?.active&&<p className="mt-5 text-red-500 text-sm font-bold animate-pulse">⚡ SABOTAGE ACTIVE</p>}
+        {!sabAvail&&!game.sabotage?.active&&sabLeft===0&&<p className="mt-5 text-slate-600 text-xs">Sabotages used</p>}
+        {!sabAvail&&!game.sabotage?.active&&sabLeft>0&&<p className="mt-5 text-slate-500 text-xs">Sabotage cooling down…</p>}
+      </>}
+    </>}
+
+    {isHost&&<button onClick={onNewGame} className="mt-10 text-slate-500 text-xs hover:text-slate-300 btn underline">Reset / New Game</button>}
+  </Page>;
+}
+
+/* ── DISCUSSION ── */
+function DiscussionScreen({game,myName,isHost,onEndDiscussion,onGhostSabotage}){
+  const meeting=game.meeting||{};
+  const [remaining,setRemaining]=useState(()=>Math.max(0,meeting.discussionEndsAt-Date.now()));
+  const players=game.players||{};
+  const alive=getAlive(players);
+  const isSpectator=players[myName]?.isSpectator;
+  const isAlive=players[myName]?.alive;
+
+  if(!isAlive&&!isSpectator) return<GhostView game={game} myName={myName} label="You are dead — spectating discussion" onGhostSabotage={onGhostSabotage} hostControls={isHost&&<button onClick={onEndDiscussion} className="w-full text-left text-slate-300 text-sm py-1 btn hover:text-white">⏩ Skip to Vote</button>}/>;
+
+  useEffect(()=>{
+    const iv=setInterval(()=>{
+      const rem=Math.max(0,meeting.discussionEndsAt-Date.now());
+      setRemaining(rem);
+      if(rem<=0){clearInterval(iv);if(isHost)onEndDiscussion();}
+    },500);
+    return()=>clearInterval(iv);
+  },[meeting.discussionEndsAt,isHost]);
+
+  const urgent=remaining<30000;
+
+  return<Page>
+    <h2 className={`font-title text-3xl mt-2 mb-1 ${meeting.type==='emergency'?'text-yellow-400':'text-red-400'}`}>
+      {meeting.type==='emergency'?'EMERGENCY MEETING!':'BODY REPORTED!'}
+    </h2>
+    {meeting.type==='body'&&meeting.victim&&<div className="flex items-center gap-2 mb-1">
+      <Crew color={pcolor(players,meeting.victim)} size={28}/>
+      <p className="text-white font-bold text-base">{meeting.victim}'s body was found</p>
+    </div>}
+    {meeting.calledBy&&<p className="text-slate-400 text-sm mb-4">Reported by <span className="text-white font-semibold">{meeting.calledBy}</span></p>}
+    <div className={`font-title text-7xl mb-6 ${urgent?'timer-urgent':'text-white'}`}>{fmtMs(remaining)}</div>
+    <p className="text-slate-400 text-sm mb-4">Discuss! Voting opens when the timer ends.</p>
+
+    {isHost&&<button onClick={onEndDiscussion}
+      className="mb-6 bg-slate-700 hover:bg-slate-600 text-white font-bold px-5 py-2 rounded-xl btn border border-slate-500 text-sm">
+      Skip to Vote
+    </button>}
+
+    <div className="w-full max-w-sm bg-slate-800/60 rounded-2xl p-3 border border-slate-700">
+      <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Alive ({alive.length})</p>
+      {alive.map(n=>(
+        <div key={n} className="flex items-center gap-2 py-1.5 px-2">
+          <Crew color={pcolor(players,n)} size={32}/>
+          <span className="text-white">{n}{n===myName?' (you)':''}</span>
+        </div>
+      ))}
+    </div>
+    {(!isAlive&&!isSpectator)&&<p className="mt-4 text-slate-500 text-sm">You are dead — spectating</p>}
+  </Page>;
+}
+
+/* ── REPORT ── */
+function ReportScreen({game,myName,isHost,onConfirm}){
+  const alive=getAlive(game.players||{});
+  const [dead,setDead]=useState([]);
+  const isAlive=(game.players||{})[myName]?.alive;
+  const isSpec=(game.players||{})[myName]?.isSpectator;
+  const toggle=n=>setDead(d=>d.includes(n)?d.filter(x=>x!==n):[...d,n]);
+
+  if(!isHost) return<Page className="justify-center">
+    <Crew color="#ef4444" size={70}/>
+    <h2 className="font-title text-3xl text-red-400 mt-4 mb-3">BODY FOUND!</h2>
+    <p className="text-slate-300 text-center text-sm">Waiting for host to mark who died…</p>
+  </Page>;
+
+  return<Page>
+    <h2 className="font-title text-3xl text-red-400 mb-1">BODY FOUND!</h2>
+    <p className="text-slate-300 text-sm mb-5 text-center">Tap to mark who was killed</p>
+    <div className="w-full max-w-sm space-y-3 mb-6">
+      {alive.map(n=>(
+        <button key={n} onClick={()=>toggle(n)}
+          className={`w-full py-4 px-5 rounded-xl font-bold text-lg btn border-2
+            ${dead.includes(n)?'bg-red-900/60 border-red-500 text-red-300':'bg-slate-800 border-slate-600 text-white'}`}>
+          {n}{dead.includes(n)?' — DEAD':''}
+        </button>
+      ))}
+    </div>
+    {dead.length>0&&<button onClick={()=>onConfirm(dead)}
+      className="w-full max-w-sm bg-red-600 text-white font-title text-xl py-4 rounded-2xl btn">
+      CONFIRM {dead.length} DEATH{dead.length>1?'S':''}
+    </button>}
+  </Page>;
+}
+
+/* ── VOTING ── */
+function VotingScreen({game,myName,isHost,onVote,onCancelVote,onGhostSabotage}){
+  const players=game.players||{};
+  const alive=getAlive(players);
+  const votes=game.votes||{};
+  const myVote=votes[myName];
+  const [selected,setSelected]=useState(null);
+  const isAlive=players[myName]?.alive;
+  const isSpec=players[myName]?.isSpectator;
+
+  if(!isAlive&&!isSpec) return<GhostView game={game} myName={myName} label="You are dead — spectating the vote" onGhostSabotage={onGhostSabotage} hostControls={isHost&&<button onClick={onCancelVote} className="w-full text-left text-slate-300 text-sm py-1 btn hover:text-white">✕ Cancel vote (stuck?)</button>}/>;
+  if(isSpec) return<GhostVoteWatch game={game} myName={myName}/>;
+
+  if(myVote!==undefined) return<Page className="justify-center">
+    <Crew color="#06b6d4" size={60}/>
+    <h2 className="font-title text-2xl text-white mt-4">Vote locked in!</h2>
+    <p className="text-slate-400 mt-2 mb-6 text-sm">Waiting for others…</p>
+    <div className="w-full max-w-sm bg-slate-800/60 rounded-2xl p-4 border border-slate-700">
+      <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-3">{Object.keys(votes).length}/{alive.length} voted</p>
+      {alive.map(n=>(
+        <div key={n} className="flex items-center gap-3 py-1.5">
+          <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${votes[n]!==undefined?'bg-green-400':'bg-slate-600'}`}/>
+          <Crew color={pcolor(players,n)} size={28}/>
+          <span className="text-white text-sm">{n}{n===myName?' (you)':''}</span>
+          {votes[n]!==undefined&&<span className="ml-auto text-green-400 text-sm">✓</span>}
+        </div>
+      ))}
+    </div>
+    {isHost&&<button onClick={onCancelVote} className="mt-6 text-slate-500 text-xs hover:text-red-400 btn underline">✕ Cancel vote (stuck?)</button>}
+  </Page>;
+
+  const others=alive.filter(n=>n!==myName);
+  return<Page>
+    <p className="text-slate-500 text-sm mb-1">Your vote</p>
+    <h2 className="font-title text-3xl text-white mb-1">{myName}</h2>
+    <p className="text-cyan-400 font-semibold mb-5 text-center text-sm">Who is the Imposter?</p>
+    <div className="w-full max-w-sm space-y-3 mb-5">
+      {others.map(n=>(
+        <button key={n} onClick={()=>setSelected(n)}
+          className={`w-full py-3 px-5 rounded-xl font-bold text-lg btn border-2 flex items-center gap-3
+            ${selected===n?'bg-red-900/60 border-red-500 text-red-300':'bg-slate-800 border-slate-600 text-white'}`}>
+          <Crew color={pcolor(players,n)} size={32}/>{n}
+        </button>
+      ))}
+      <button onClick={()=>setSelected('__skip__')}
+        className={`w-full py-3 px-5 rounded-xl font-bold btn border-2 ${selected==='__skip__'?'bg-yellow-900/60 border-yellow-500 text-yellow-300':'bg-slate-800 border-slate-600 text-slate-400'}`}>
+        Skip Vote
+      </button>
+    </div>
+    {selected&&<button onClick={()=>{playSound('vote');onVote(selected==='__skip__'?null:selected);}}
+      className="w-full max-w-sm bg-cyan-600 text-white font-title text-xl py-4 rounded-2xl btn">
+      LOCK IN VOTE
+    </button>}
+    {isHost&&<button onClick={onCancelVote} className="mt-6 text-slate-500 text-xs hover:text-red-400 btn underline">✕ Cancel vote (stuck?)</button>}
+  </Page>;
+}
+
+function GhostVoteWatch({game,myName}){
+  const players=game.players||{};
+  const alive=getAlive(players);
+  const votes=game.votes||{};
+  return<Page className="justify-center">
+    <Crew color="#475569" size={60} ghost/>
+    <h2 className="font-title text-2xl text-slate-400 mt-4 mb-2">Spectating Vote</h2>
+    <div className="w-full max-w-sm bg-slate-800/60 rounded-2xl p-4 border border-slate-700 mt-4">
+      <p className="text-slate-400 text-xs mb-3">{Object.keys(votes).length}/{alive.length} voted</p>
+      {alive.map(n=>(
+        <div key={n} className="flex items-center gap-2 py-1.5">
+          <span className={`w-2 h-2 rounded-full ${votes[n]!==undefined?'bg-green-400':'bg-slate-600'}`}/>
+          <Crew color={pcolor(players,n)} size={24}/>
+          <span className="text-slate-300 text-sm">{n}</span>
+          {votes[n]!==undefined&&<span className="ml-auto text-green-400 text-xs">voted</span>}
+        </div>
+      ))}
+    </div>
+  </Page>;
+}
+
+/* ── RESULTS ── */
+function ResultsScreen({game,myName,isHost,onEject,onNoEject}){
+  const [ejectedName,setEjectedName]=useState(null);
+  const [showReveal,setShowReveal]=useState(false);
+  const players=game.players||{};
+  const alive=getAlive(players);
+  const votes=game.votes||{};
+  const imposters=game.imposters||[];
+  const isAlive=players[myName]?.alive;
+  const isSpec=players[myName]?.isSpectator;
+
+  const tally={};
+  alive.forEach(n=>{tally[n]=0;});
+  Object.values(votes).forEach(v=>{if(v&&tally[v]!==undefined)tally[v]++;});
+  const sorted=Object.entries(tally).sort(([,a],[,b])=>b-a);
+  const top=sorted[0]?.[1]||0;
+  const topPlayers=sorted.filter(([,v])=>v===top&&v>0);
+  const isTie=topPlayers.length!==1;
+
+  if(showReveal){
+    const wasImp=imposters.includes(ejectedName);
+    if(wasImp)playSound('eject');
+    return<Page className="justify-center">
+      <div className="reveal-pop flex flex-col items-center w-full max-w-sm">
+        <Crew color={wasImp?'#ef4444':'#06b6d4'} size={90}/>
+        <h2 className="font-title text-3xl text-white mt-4 mb-1">{ejectedName} ejected!</h2>
+        <p className={`font-title text-3xl mt-1 text-center ${wasImp?'text-red-500':'text-cyan-400'}`}>
+          {wasImp?`${ejectedName} WAS an Imposter!`:`${ejectedName} was NOT an Imposter…`}
+        </p>
+        {isHost?<button onClick={()=>onEject(ejectedName)}
+          className="mt-8 w-full bg-slate-700 text-white font-bold text-lg py-4 rounded-2xl btn border border-slate-500">
+          CONTINUE
+        </button>:<p className="mt-6 text-slate-400 text-sm">Waiting for host…</p>}
+      </div>
+    </Page>;
+  }
+
+  return<Page>
+    <h2 className="font-title text-3xl text-white mb-5">VOTE RESULTS</h2>
+    <div className="w-full max-w-sm space-y-3 mb-5">
+      {sorted.map(([n,v])=>(
+        <div key={n} className="flex justify-between items-center bg-slate-800 rounded-xl px-4 py-3 border border-slate-700">
+          <div className="flex items-center gap-2"><Crew color={pcolor(players,n)} size={32}/><span className="text-white font-semibold">{n}</span></div>
+          <span className={`font-bold text-lg ${v>0?'text-red-400':'text-slate-500'}`}>{v}v</span>
+        </div>
+      ))}
+    </div>
+    {isHost&&!isTie&&<button onClick={()=>{setEjectedName(topPlayers[0][0]);setShowReveal(true);}}
+      className="w-full max-w-sm bg-red-600 text-white font-title text-xl py-4 rounded-2xl btn pulse-glow mb-2">
+      EJECT {topPlayers[0][0].toUpperCase()}
+    </button>}
+    {isHost&&isTie&&<button onClick={onNoEject}
+      className="w-full max-w-sm bg-slate-700 text-white font-title text-xl py-4 rounded-2xl btn border border-slate-500">
+      TIE — NO EJECTION
+    </button>}
+    {!isHost&&<p className="text-slate-400 text-sm text-center">Waiting for host to decide…</p>}
+  </Page>;
+}
+
+/* ── GHOST VIEW ── */
+function GhostActionOverlay({overlay,onDone}){
+  const [remaining,setRemaining]=useState(()=>Math.max(0,overlay.endsAt-Date.now()));
+  useEffect(()=>{
+    const iv=setInterval(()=>{
+      const r=Math.max(0,overlay.endsAt-Date.now());
+      setRemaining(r);
+      if(r<=0){clearInterval(iv);onDone();}
+    },100);
+    return()=>clearInterval(iv);
+  },[overlay.endsAt]);
+  const secs=Math.ceil(remaining/1000);
+  const pct=remaining/(5000);
+  return<div className="fixed inset-0 z-50 flex flex-col items-center justify-center p-6" style={{pointerEvents:'all',touchAction:'none',background:'rgba(10,0,20,.9)',backdropFilter:'blur(6px)'}}>
+    <p className="text-7xl mb-4" style={{filter:'drop-shadow(0 0 20px #a855f7)'}}>👻</p>
+    <h2 className="font-title text-4xl text-purple-400 mb-2" style={{textShadow:'0 0 30px #a855f7'}}>GHOST SABOTAGE!</h2>
+    <p className="text-slate-400 text-sm mb-6">A ghost is haunting you — do this NOW:</p>
+    <div className="bg-purple-900/60 border-2 border-purple-500 rounded-3xl px-6 py-5 text-center max-w-xs mb-8" style={{boxShadow:'0 0 40px #a855f750'}}>
+      <p className="text-white text-2xl font-bold leading-snug">{overlay.action}</p>
+    </div>
+    <div className="w-48 h-3 bg-slate-700 rounded-full overflow-hidden mb-2">
+      <div className="h-full bg-purple-500 rounded-full transition-all" style={{width:`${pct*100}%`,transition:'width 0.1s linear'}}/>
+    </div>
+    <p className={`font-title text-4xl ${secs<=2?'text-red-400':'text-purple-300'}`}>{secs}</p>
+  </div>;
+}
+
+function GhostView({game,myName,label,onGhostSabotage,hostControls}){
+  const players=game.players||{};
+  const alive=getAlive(players);
+  const imposters=game.imposters||[];
+  const used=players[myName]?.ghostSabotageUsed;
+  const sentAction=used&&game.ghostSabotageEvent?.triggeredBy===myName?game.ghostSabotageEvent.action:null;
+
+  return<Page className="justify-center">
+    <Crew color="#475569" size={70} ghost/>
+    <h2 className="font-title text-2xl text-slate-400 mt-3 mb-1">👻 You are dead</h2>
+    {label&&<p className="text-slate-500 text-sm mb-4 text-center">{label}</p>}
+    {onGhostSabotage&&!used&&<button onClick={()=>onGhostSabotage()}
+      className="mb-5 bg-purple-900/60 hover:bg-purple-800/80 text-purple-300 font-bold px-6 py-3 rounded-xl btn border border-purple-600 text-sm">
+      👻 Ghost Sabotage (1 left)
+    </button>}
+    {onGhostSabotage&&used&&<div className="mb-5 bg-purple-900/30 border border-purple-800 rounded-2xl px-4 py-3 text-center max-w-xs">
+      <p className="text-purple-400 text-sm font-bold mb-1">😈 Haunting in progress!</p>
+      {sentAction&&<p className="text-slate-400 text-xs leading-snug">You sent: {sentAction}</p>}
+    </div>}
+    {hostControls&&<div className="w-full max-w-sm bg-slate-800/60 rounded-2xl p-3 border border-yellow-700/50 mb-3">
+      <p className="text-yellow-400 text-xs font-semibold uppercase tracking-wide mb-2">🎮 Host Controls</p>
+      {hostControls}
+    </div>}
+    <div className="w-full max-w-sm bg-slate-800/60 rounded-2xl p-3 border border-slate-700">
+      <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Still alive ({alive.length})</p>
+      {alive.map(n=>(
+        <div key={n} className="flex items-center gap-2 py-1.5 px-2">
+          <Crew color={pcolor(players,n)} size={28}/>
+          <span className="text-slate-300">{n}</span>
+          {imposters.includes(n)&&<span className="ml-auto text-red-400 text-xs font-bold">IMPOSTER</span>}
+        </div>
+      ))}
+    </div>
+  </Page>;
+}
+
+/* ── SCATTER ── */
+function ScatterScreen({game}){
+  const [remaining,setRemaining]=useState(()=>Math.max(0,game.scatterEndsAt-Date.now()));
+  useEffect(()=>{
+    const iv=setInterval(()=>setRemaining(r=>Math.max(0,game.scatterEndsAt-Date.now())),100);
+    return()=>clearInterval(iv);
+  },[game.scatterEndsAt]);
+  const secs=Math.ceil(remaining/1000);
+  const pct=remaining/15000;
+  const urgent=secs<=5;
+  return<Page className="justify-center items-center">
+    <div className="flex flex-col items-center text-center">
+      <p className="text-8xl mb-2" style={{filter:'drop-shadow(0 0 30px #ef4444)',animation:'celebrate .4s ease-in-out infinite'}}>🏃</p>
+      <h1 className="font-title text-8xl text-red-500 mb-1" style={{textShadow:'0 0 40px #ef4444',letterSpacing:'6px'}}>RUN!</h1>
+      <p className="text-white font-bold text-xl mb-1">Find a separate room!</p>
+      <p className="text-slate-400 text-sm mb-8 max-w-xs leading-snug">Split up — no two players in the same space before the game begins</p>
+      <div className="w-64 h-4 bg-slate-700 rounded-full overflow-hidden mb-3">
+        <div className={`h-full rounded-full transition-all ${urgent?'bg-red-500':'bg-green-500'}`}
+          style={{width:`${pct*100}%`,transition:'width 0.1s linear'}}/>
+      </div>
+      <p className={`font-title text-7xl ${urgent?'text-red-400 timer-urgent':'text-white'}`}>{secs}</p>
+      <p className="text-slate-500 text-sm mt-2">seconds to scatter</p>
+    </div>
+  </Page>;
+}
+
+/* ── WIN ── */
+function WinScreen({game,isHost,onNewGame,onLeave}){
+  const isCrewWin=game.winner==='crew';
+  const imposters=game.imposters||[];
+  const wins=game.wins||{crew:0,imposters:0};
+  useEffect(()=>{playSound(isCrewWin?'crew_win':'imp_win');},[]);
+  return<Page className="justify-center">
+    <div className="celebrate flex flex-col items-center">
+      <Crew color={isCrewWin?'#06b6d4':'#ef4444'} size={100}/>
+      <h1 className={`font-title text-5xl mt-4 ${isCrewWin?'text-cyan-400':'text-red-500'}`}>
+        {isCrewWin?'CREWMATES WIN!':'IMPOSTERS WIN!'}
+      </h1>
+    </div>
+    <div className="mt-5 w-full max-w-sm bg-slate-800/80 rounded-2xl p-4 border border-slate-700 text-center">
+      <p className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-1">Imposters were</p>
+      {imposters.map(n=><p key={n} className="text-red-400 font-title text-2xl">{n}</p>)}
+    </div>
+    <div className="mt-3 w-full max-w-sm bg-slate-800/60 rounded-xl px-4 py-2 border border-slate-700 flex justify-around text-center">
+      <div><p className="text-cyan-400 font-title text-2xl">{wins.crew}</p><p className="text-slate-400 text-xs">Crew wins</p></div>
+      <div className="w-px bg-slate-700"/>
+      <div><p className="text-red-400 font-title text-2xl">{wins.imposters}</p><p className="text-slate-400 text-xs">Imposter wins</p></div>
+    </div>
+    {isHost?<button onClick={onNewGame} className="mt-5 w-full max-w-sm bg-cyan-600 text-white font-title text-2xl py-4 rounded-2xl btn">NEW GAME</button>
+      :<p className="mt-5 text-slate-400 text-sm">Waiting for host to start a new game…</p>}
+    <button onClick={onLeave} className="mt-3 text-slate-500 text-sm hover:text-slate-300 btn underline">Leave room</button>
+  </Page>;
+}
+
+const LoadingScreen=()=><Page className="justify-center items-center"><Crew color="#475569" size={60} ghost/><p className="text-slate-500 mt-4 font-semibold animate-pulse">Connecting…</p></Page>;
+
+/* ── RESUME ── */
+const PHASE_LABELS={
+  scatter:'Players were scattering to different rooms',
+  play:'Game was in progress',
+  discussion:'An emergency meeting was happening',
+  voting:'A vote was in progress',
+  results:'Vote results were being revealed',
+  report:'A body was being reported',
+  roles:'Roles were being assigned',
+};
+function ResumeScreen({game,myName,roomCode,onResume,onNewGame}){
+  const phase=game?.phase;
+  return<Page className="justify-center items-center">
+    <Crew color="#06b6d4" size={72}/>
+    <h2 className="font-title text-4xl text-white mt-4 mb-1">Game in Progress</h2>
+    <p className="text-slate-400 text-sm mb-1">Room <span className="text-white font-bold tracking-widest">{roomCode}</span></p>
+    <p className="text-slate-400 text-sm mb-6">Playing as <span className="text-cyan-400 font-bold">{myName}</span></p>
+    <div className="w-full max-w-xs bg-slate-800/60 rounded-2xl p-4 border border-slate-700 text-center mb-7">
+      <p className="text-slate-500 text-xs uppercase tracking-wide mb-1">Last known status</p>
+      <p className="text-slate-200 text-sm">{PHASE_LABELS[phase]||'Game was in progress'}</p>
+    </div>
+    <button onClick={onResume} className="w-full max-w-xs bg-cyan-600 text-white font-title text-2xl py-4 rounded-2xl btn mb-3 pulse-glow">
+      Resume Game
+    </button>
+    <button onClick={onNewGame} className="w-full max-w-xs bg-slate-800 text-slate-300 font-bold py-3 rounded-2xl btn border border-slate-600">
+      Start Fresh
+    </button>
+  </Page>;
+}
+
+/* ═══════════════════════════════════════════════════════ APP ═══ */
+function App(){
+  const [myName,setMyName]=useState(()=>localStorage.getItem('aul_name')||'');
+  const [roomCode,setRoomCode]=useState(()=>localStorage.getItem('aul_room')||'');
+  const [isHost,setIsHost]=useState(()=>localStorage.getItem('aul_host')==='true');
+  const [joined,setJoined]=useState(false);
+  const [game,setGame]=useState(null);
+  const [kicked,setKicked]=useState(false);
+  const [showResume,setShowResume]=useState(false);
+  const prevPhaseRef=useRef(null);
+  const lastSoundRef=useRef(0);
+  const lastGhostRef=useRef(0);
+  const [ghostOverlay,setGhostOverlay]=useState(null);
+
+  // Auto-rejoin on refresh — show resume screen if mid-game
+  useEffect(()=>{
+    const n=localStorage.getItem('aul_name'),r=localStorage.getItem('aul_room'),h=localStorage.getItem('aul_host')==='true';
+    const saved=localStorage.getItem('aul_game');
+    if(n&&r&&saved){
+      const g=JSON.parse(saved);
+      const midGame=g?.phase&&g.phase!=='lobby'&&g.phase!=='win';
+      setMyName(n);setRoomCode(r);setIsHost(h);
+      if(midGame){setGame(g);setShowResume(true);}
+      else{setJoined(true);}
+    } else if(n&&r){
+      setMyName(n);setRoomCode(r);setIsHost(h);setJoined(true);
+    }
+  },[]);
+
+  // Subscribe
+  useEffect(()=>{
+    if(!roomCode||!joined)return;
+    const ref=db.ref(`games/${roomCode}`);
+    ref.on('value',snap=>{
+      const g=snap.val();
+      setGame(g);
+      if(!g){localStorage.removeItem('aul_game');return;}
+      if(g.phase==='win'||g.phase==='lobby')localStorage.removeItem('aul_game');
+      else localStorage.setItem('aul_game',JSON.stringify(g));
+      // Kicked detection
+      if(g.players&&!g.players[myName]&&myName){setKicked(true);return;}
+      // Host transfer
+      const pnames=Object.keys(g.players||{});
+      if(!pnames.includes(g.host)&&pnames.length>0){
+        const newHost=pnames.filter(n=>!(g.players[n]?.isSpectator)).sort()[0];
+        if(newHost===myName){
+          db.ref(`games/${roomCode}/host`).set(myName);
+          setIsHost(true);localStorage.setItem('aul_host','true');
+        }
+      }
+      // Synced sounds — play on ALL devices when triggered
+      const se=g.soundEvent;
+      if(se?.triggeredAt&&se.triggeredAt!==lastSoundRef.current){
+        lastSoundRef.current=se.triggeredAt;
+        if(se.type==='body')playAlarm(3.5);
+        else if(se.type==='meeting')playMeetingAlarm();
+        else if(se.type==='sabotage')playSabotageAlarm();
+        else if(se.type==='ghost_sabotage')playGhostSound();
+      }
+      // Ghost sabotage — show blocking overlay with action on alive players' screens
+      const ge=g.ghostSabotageEvent;
+      if(ge?.triggeredAt&&ge.triggeredAt!==lastGhostRef.current){
+        lastGhostRef.current=ge.triggeredAt;
+        const amAlive=g.players?.[myName]?.alive&&!g.players?.[myName]?.isSpectator;
+        if(amAlive)setGhostOverlay({action:ge.action,endsAt:ge.triggeredAt+5000});
+      }
+    });
+    return()=>ref.off();
+  },[roomCode,joined,myName]);
+
+  // Scatter auto-end (all clients try; idempotent)
+  useEffect(()=>{
+    if(game?.phase!=='scatter')return;
+    const endsAt=game?.scatterEndsAt;
+    if(!endsAt)return;
+    const iv=setInterval(()=>{
+      if(Date.now()>=endsAt){clearInterval(iv);db.ref(`games/${roomCode}`).update({phase:'play'});}
+    },300);
+    return()=>clearInterval(iv);
+  },[game?.phase,game?.scatterEndsAt,roomCode]);
+
+  // Discussion auto-end (all clients try; idempotent)
+  useEffect(()=>{
+    if(game?.phase!=='discussion')return;
+    const endsAt=game?.meeting?.discussionEndsAt;
+    if(!endsAt)return;
+    const iv=setInterval(()=>{
+      if(Date.now()>=endsAt){
+        clearInterval(iv);
+        db.ref(`games/${roomCode}`).update({phase:'voting',votes:{}});
+      }
+    },500);
+    return()=>clearInterval(iv);
+  },[game?.phase,game?.meeting?.discussionEndsAt,roomCode]);
+
+  // Win sound on phase change
+  useEffect(()=>{
+    if(!game)return;
+    if(game.phase==='roles'&&prevPhaseRef.current==='lobby')setTimeout(()=>playSound('reveal'),300);
+    prevPhaseRef.current=game.phase;
+  },[game?.phase]);
+
+  if(kicked)return<><Starfield/><Page className="justify-center items-center"><Crew color="#ef4444" size={70}/><h2 className="font-title text-3xl text-red-400 mt-4">Removed from game</h2><p className="text-slate-400 mt-2 text-sm text-center">The host removed you from this game.</p><button onClick={()=>{setKicked(false);setJoined(false);['aul_name','aul_room','aul_host'].forEach(k=>localStorage.removeItem(k));}} className="mt-6 bg-slate-700 text-white font-bold px-6 py-3 rounded-xl btn">Back to Home</button></Page></>;
+
+  /* ─── Actions ─── */
+  const hostGame=async(name)=>{
+    const code=genCode();
+    await db.ref(`games/${code}`).set({
+      phase:'lobby',host:name,
+      players:{[name]:{alive:true,roleRevealed:false,color:COLOR_KEYS[0],isSpectator:false,joinedAt:Date.now()}},
+      imposters:[],votes:{},winner:null,wins:{crew:0,imposters:0},
+      imposterCount:'auto',sabotage:{active:false,usedBy:null},meeting:{},createdAt:Date.now()
+    });
+    localStorage.setItem('aul_name',name);localStorage.setItem('aul_room',code);localStorage.setItem('aul_host','true');
+    setMyName(name);setRoomCode(code);setIsHost(true);setJoined(true);
+  };
+
+  const joinGame=async(name,code,asSpectator=false)=>{
+    const snap=await db.ref(`games/${code}`).once('value');
+    const g=snap.val();
+    if(!g)return'Room not found.';
+    if(g.phase!=='lobby')return'Game already in progress.';
+    const taken=g.players&&Object.keys(g.players).some(n=>n.toLowerCase()===name.toLowerCase());
+    if(taken)return'That name is taken.';
+    const takenColors=Object.values(g.players||{}).map(p=>p.color).filter(Boolean);
+    const freeColor=COLOR_KEYS.find(c=>!takenColors.includes(c))||COLOR_KEYS[0];
+    await db.ref(`games/${code}/players/${name}`).set({alive:true,roleRevealed:false,color:freeColor,isSpectator:asSpectator,joinedAt:Date.now()});
+    localStorage.setItem('aul_name',name);localStorage.setItem('aul_room',code);localStorage.setItem('aul_host','false');
+    setMyName(name);setRoomCode(code);setIsHost(false);setJoined(true);
+    return null;
+  };
+
+  const leaveGame=()=>{
+    ['aul_name','aul_room','aul_host','aul_game'].forEach(k=>localStorage.removeItem(k));
+    setJoined(false);setRoomCode('');setIsHost(false);setGame(null);setMyName('');setShowResume(false);
+  };
+
+  const kickPlayer=async(name)=>{
+    playSound('kick');
+    await db.ref(`games/${roomCode}/players/${name}`).remove();
+  };
+
+  const changeColor=async(color)=>{
+    await db.ref(`games/${roomCode}/players/${myName}/color`).set(color);
+  };
+
+  const changeImpCount=async(v)=>{
+    await db.ref(`games/${roomCode}/imposterCount`).set(v);
+  };
+
+  const startGame=async()=>{
+    const players=game.players||{};
+    const active=getActive(players);
+    const count=game.imposterCount||'auto';
+    const raw=count==='auto'?(active.length<=6?1:2):parseInt(count);
+    const impCount=Math.min(raw,Math.floor(active.length/2));
+    const shuffled=shuffle(active);
+    const imposters=shuffled.slice(0,impCount);
+    const newPlayers={};
+    Object.entries(players).forEach(([n,p])=>{
+      const isImp=imposters.includes(n);
+      newPlayers[n]={...p,alive:true,roleRevealed:false,emergencyUsed:false,sabotagesLeft:isImp?2:0,ghostSabotageUsed:false};
+    });
+    await db.ref(`games/${roomCode}`).update({phase:'roles',imposters,players:newPlayers,votes:{},sabotage:{active:false}});
+  };
+
+  const revealDone=async()=>{await db.ref(`games/${roomCode}/players/${myName}`).update({roleRevealed:true});};
+  const startPlaying=async()=>{await db.ref(`games/${roomCode}`).update({phase:'scatter',scatterEndsAt:Date.now()+15000});};
+
+  const startMeeting=async(type)=>{
+    const now=Date.now();
+    const upd={
+      phase:'discussion',
+      meeting:{calledBy:myName,calledAt:now,type,discussionEndsAt:now+DISCUSSION_MS},
+      soundEvent:{type:'meeting',triggeredAt:now}
+    };
+    if(type==='emergency')upd[`players/${myName}/emergencyUsed`]=true;
+    await db.ref(`games/${roomCode}`).update(upd);
+  };
+
+  const endDiscussion=async()=>{
+    await db.ref(`games/${roomCode}`).update({phase:'voting',votes:{}});
+  };
+
+  const bodyFound=async(victim)=>{
+    const now=Date.now();
+    const upd={
+      meeting:{calledBy:myName,calledAt:now,type:'body',victim:victim||null,discussionEndsAt:now+DISCUSSION_MS},
+      soundEvent:{type:'body',triggeredAt:now}
+    };
+    if(victim){
+      upd[`players/${victim}/alive`]=false;
+      upd[`players/${victim}/ghostSabotageUsed`]=false;
+      const newPlayers={...game.players,[victim]:{...game.players[victim],alive:false}};
+      const w=checkWin(newPlayers,game.imposters||[]);
+      if(w){
+        const wins=game.wins||{crew:0,imposters:0};
+        upd.phase='win';upd.winner=w;
+        upd['wins/crew']=wins.crew+(w==='crew'?1:0);
+        upd['wins/imposters']=wins.imposters+(w==='imposters'?1:0);
+      }else{
+        upd.phase='discussion';
+      }
+    }else{
+      upd.phase='discussion';
+    }
+    await db.ref(`games/${roomCode}`).update(upd);
+  };
+
+  const confirmDeaths=async(dead)=>{
+    const upd={};
+    dead.forEach(n=>{upd[`players/${n}/alive`]=false;upd[`players/${n}/ghostSabotageUsed`]=false;});
+    const newPlayers={...game.players};
+    dead.forEach(n=>{newPlayers[n]={...newPlayers[n],alive:false};});
+    const w=checkWin(newPlayers,game.imposters||[]);
+    if(w){
+      const wins=game.wins||{crew:0,imposters:0};
+      upd.phase='win';upd.winner=w;
+      upd['wins/crew']=wins.crew+(w==='crew'?1:0);
+      upd['wins/imposters']=wins.imposters+(w==='imposters'?1:0);
+    }else{upd.phase='discussion';const now=Date.now();upd['meeting/calledBy']=myName;upd['meeting/calledAt']=now;upd['meeting/type']='body';upd['meeting/discussionEndsAt']=now+DISCUSSION_MS;upd['soundEvent']={type:'body',triggeredAt:now};}
+    await db.ref(`games/${roomCode}`).update(upd);
+  };
+
+  const castVote=async(votedFor)=>{
+    const me=game?.players?.[myName];
+    if(!me?.alive||me?.isSpectator)return; // dead/spectators cannot vote
+    await db.ref(`games/${roomCode}/votes/${myName}`).set(votedFor||'skip');
+    const snap=await db.ref(`games/${roomCode}`).once('value');
+    const g=snap.val();
+    if(g.phase!=='voting')return;
+    const alive=getAlive(g.players);
+    const votes={...(g.votes||{}),[myName]:votedFor||'skip'};
+    if(alive.every(n=>votes[n]!==undefined))await db.ref(`games/${roomCode}`).update({phase:'results',votes});
+  };
+
+  const ejectPlayer=async(name)=>{
+    const upd={[`players/${name}/alive`]:false};
+    const newPlayers={...game.players,[name]:{...game.players[name],alive:false}};
+    const w=checkWin(newPlayers,game.imposters||[]);
+    const wins=game.wins||{crew:0,imposters:0};
+    if(w){
+      upd.phase='win';upd.winner=w;
+      upd['wins/crew']=wins.crew+(w==='crew'?1:0);
+      upd['wins/imposters']=wins.imposters+(w==='imposters'?1:0);
+    }else{upd.phase='scatter';upd.scatterEndsAt=Date.now()+15000;}
+    await db.ref(`games/${roomCode}`).update(upd);
+  };
+
+  const noEject=async()=>{await db.ref(`games/${roomCode}`).update({phase:'scatter',scatterEndsAt:Date.now()+15000});};
+  const cancelVote=async()=>{await db.ref(`games/${roomCode}`).update({phase:'play',votes:{}});};
+  const doGhostSabotage=async()=>{
+    const now=Date.now();
+    const action=GHOST_ACTIONS[Math.floor(Math.random()*GHOST_ACTIONS.length)];
+    await db.ref(`games/${roomCode}`).update({
+      [`players/${myName}/ghostSabotageUsed`]:true,
+      ghostSabotageEvent:{triggeredAt:now,action,triggeredBy:myName},
+      soundEvent:{type:'ghost_sabotage',triggeredAt:now}
+    });
+  };
+
+  const sabotage=async()=>{
+    const myPlayer=game?.players?.[myName];
+    if(!myPlayer||myPlayer.sabotagesLeft<=0||game?.sabotage?.active)return;
+    const now=Date.now();
+    await db.ref(`games/${roomCode}`).update({
+      'sabotage/active':true,'sabotage/triggeredAt':now,
+      [`players/${myName}/sabotagesLeft`]:myPlayer.sabotagesLeft-1,
+      soundEvent:{type:'sabotage',triggeredAt:now}
+    });
+    setTimeout(()=>db.ref(`games/${roomCode}/sabotage/active`).set(false),5000);
+  };
+
+  const newGame=async()=>{
+    const names=Object.keys(game.players||{});
+    const players={};
+    names.forEach(n=>{players[n]={...game.players[n],alive:true,roleRevealed:false,emergencyUsed:false,sabotagesLeft:0,ghostSabotageUsed:false};});
+    await db.ref(`games/${roomCode}`).update({
+      phase:'lobby',imposters:[],votes:{},winner:null,players,
+      sabotage:{active:false},meeting:{}
+    });
+  };
+
+  /* ─── Render ─── */
+  const handleResume=()=>{setShowResume(false);setJoined(true);};
+  const handleStartFresh=()=>{['aul_name','aul_room','aul_host','aul_game'].forEach(k=>localStorage.removeItem(k));setShowResume(false);setGame(null);setMyName('');setRoomCode('');setIsHost(false);};
+  if(showResume)return<><Starfield/><ResumeScreen game={game} myName={myName} roomCode={roomCode} onResume={handleResume} onNewGame={handleStartFresh}/></>;
+  const sabActive=game?.sabotage?.active;
+  if(!joined)return<><Starfield/><JoinScreen onHost={hostGame} onJoin={joinGame}/></>;
+  if(!game)return<><Starfield/><LoadingScreen/></>;
+
+  const props={game,myName,roomCode,isHost};
+  let screen;
+  switch(game.phase){
+    case'lobby':    screen=<LobbyScreen {...props} onStart={startGame} onLeave={leaveGame} onKick={kickPlayer} onColorChange={changeColor} onImposterCountChange={changeImpCount}/>;break;
+    case'roles':    screen=<RolesScreen {...props} onRevealDone={revealDone} onStartPlaying={startPlaying}/>;break;
+    case'scatter':  screen=<ScatterScreen {...props}/>;break;
+    case'discussion':screen=<DiscussionScreen {...props} onEndDiscussion={endDiscussion} onGhostSabotage={doGhostSabotage}/>;break;
+    case'play':     screen=<PlayScreen {...props} onBodyFound={bodyFound} onEmergency={()=>startMeeting('emergency')} onSabotage={sabotage} onGhostSabotage={doGhostSabotage} onNewGame={newGame}/>;break;
+    case'report':   screen=<ReportScreen {...props} onConfirm={confirmDeaths}/>;break;
+    case'voting':   screen=<VotingScreen {...props} onVote={castVote} onCancelVote={cancelVote} onGhostSabotage={doGhostSabotage}/>;break;
+    case'results':  screen=<ResultsScreen {...props} onEject={ejectPlayer} onNoEject={noEject}/>;break;
+    case'win':      screen=<WinScreen {...props} onNewGame={newGame} onLeave={leaveGame}/>;break;
+    default:        screen=<LoadingScreen/>;
+  }
+  const isImp=(game?.imposters||[]).includes(myName);
+  return<><Starfield/><SabotageOverlay active={sabActive} isImp={isImp}/>
+    {ghostOverlay&&<GhostActionOverlay overlay={ghostOverlay} onDone={()=>setGhostOverlay(null)}/>}
+    {roomCode&&<div className="fixed top-3 right-3 z-40 bg-slate-900/90 border border-slate-600 rounded-xl px-3 py-1.5 flex flex-col items-end" style={{backdropFilter:'blur(6px)'}}>
+      <span className="text-slate-500 text-xs leading-none mb-0.5">Room Code</span>
+      <span className="font-title text-xl text-white leading-none tracking-widest">{roomCode}</span>
+    </div>}
+    {screen}</>;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
