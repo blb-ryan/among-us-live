@@ -367,12 +367,11 @@ function JoinScreen({onHost,onJoin}){
 /* ── LOBBY ── */
 function LobbyScreen({game,myName,roomCode,isHost,onStart,onLeave,onKick,onColorChange,onImposterCountChange}){
   const players=game.players||{};
-  const pnames=Object.entries(players).sort(([,a],[,b])=>a.joinedAt-b.joinedAt).map(([n])=>n);
+  const pnames=useMemo(()=>Object.entries(players).sort(([,a],[,b])=>a.joinedAt-b.joinedAt).map(([n])=>n),[players]);
   const takenColors=Object.values(players).map(p=>p.color).filter(Boolean);
   const wins=game.wins||{crew:0,imposters:0};
   const impCount=game.imposterCount||'auto';
-  const joinUrl=`${window.location.origin}${window.location.pathname}?room=${roomCode}`;
-  const qrUrl=`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(joinUrl)}&bgcolor=080c18&color=06b6d4&qzone=2`;
+  const {joinUrl,qrUrl}=useMemo(()=>{const u=`${window.location.origin}${window.location.pathname}?room=${roomCode}`;return{joinUrl:u,qrUrl:`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(u)}&bgcolor=080c18&color=06b6d4&qzone=2`};},[roomCode]);
   const [copied,setCopied]=useState(false);
   const copy=()=>{navigator.clipboard?.writeText(joinUrl).then(()=>{setCopied(true);setTimeout(()=>setCopied(false),2e3)}).catch(()=>{});};
   const activePlayers=getActive(players);
@@ -496,7 +495,7 @@ function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGho
   const [picking,setPicking]=useState(false);
   const [victim,setVictim]=useState(null);
 
-  const handleBodyTap=()=>{if(pressed||isSpectator)return;setPicking(true);};
+  const handleBodyTap=()=>{if(pressed||isSpectator||!otherPlayers.length)return;setPicking(true);};
   const handleBodyConfirm=async()=>{if(pressed)return;setPressed(true);setPicking(false);await onBodyFound(victim);};
   const handleEmer=async()=>{if(emerUsed)return;await onEmergency();};
 
@@ -653,6 +652,7 @@ function VotingScreen({game,myName,isHost,onVote,onCancelVote,onGhostSabotage}){
   const votes=game.votes||{};
   const myVote=votes[myName];
   const [selected,setSelected]=useState(null);
+  const [voting,setVoting]=useState(false);
   const isAlive=players[myName]?.alive;
   const isSpec=players[myName]?.isSpectator;
 
@@ -695,9 +695,9 @@ function VotingScreen({game,myName,isHost,onVote,onCancelVote,onGhostSabotage}){
         Skip Vote
       </button>
     </div>
-    {selected&&<button onClick={()=>{playSound('vote');onVote(selected==='__skip__'?null:selected);}}
-      className="w-full max-w-sm bg-cyan-600 text-white font-title text-xl py-4 rounded-2xl btn">
-      LOCK IN VOTE
+    {selected&&<button onClick={async()=>{if(voting)return;setVoting(true);playSound('vote');await onVote(selected==='__skip__'?null:selected);setVoting(false);}} disabled={voting}
+      className="w-full max-w-sm bg-cyan-600 text-white font-title text-xl py-4 rounded-2xl btn disabled:opacity-50">
+      {voting?'LOCKING…':'LOCK IN VOTE'}
     </button>}
     {isHost&&<button onClick={onCancelVote} className="mt-6 text-slate-500 text-xs hover:text-red-400 btn underline">✕ Cancel vote (stuck?)</button>}
   </Page>;
@@ -945,6 +945,9 @@ function App(){
   const lastSoundRef=useRef(0);
   const lastGhostRef=useRef(0);
   const [ghostOverlay,setGhostOverlay]=useState(null);
+  const [errMsg,setErrMsg]=useState(null);
+  const errTimerRef=useRef(null);
+  const showErr=(msg)=>{setErrMsg(msg);clearTimeout(errTimerRef.current);errTimerRef.current=setTimeout(()=>setErrMsg(null),4000);};
 
   // Keep screen awake while app is open
   useEffect(()=>{
@@ -990,7 +993,7 @@ function App(){
       const pnames=Object.keys(g.players||{});
       if(!pnames.includes(g.host)&&pnames.length>0){
         const newHost=pnames.filter(n=>!(g.players[n]?.isSpectator)).sort()[0];
-        if(newHost===myName){
+        if(newHost&&newHost===myName){
           db.ref(`games/${roomCode}/host`).set(myName);
           setIsHost(true);localStorage.setItem('aul_host','true');
         }
@@ -1009,7 +1012,8 @@ function App(){
       if(ge?.triggeredAt&&ge.triggeredAt!==lastGhostRef.current){
         lastGhostRef.current=ge.triggeredAt;
         const amAlive=g.players?.[myName]?.alive&&!g.players?.[myName]?.isSpectator;
-        if(amAlive)setGhostOverlay({action:ge.action,endsAt:ge.triggeredAt+5000});
+        const isFresh=Date.now()<ge.triggeredAt+5000;
+        if(amAlive&&isFresh)setGhostOverlay({action:ge.action,endsAt:ge.triggeredAt+5000});
       }
     });
     return()=>ref.off();
@@ -1040,6 +1044,15 @@ function App(){
     return()=>clearInterval(iv);
   },[game?.phase,game?.meeting?.discussionEndsAt,roomCode]);
 
+  // Sabotage auto-clear (all clients try; idempotent — survives host refresh)
+  useEffect(()=>{
+    if(!game?.sabotage?.active||!game?.sabotage?.triggeredAt)return;
+    const remaining=game.sabotage.triggeredAt+5000-Date.now();
+    if(remaining<=0){db.ref(`games/${roomCode}/sabotage/active`).set(false);return;}
+    const t=setTimeout(()=>db.ref(`games/${roomCode}/sabotage/active`).set(false),remaining);
+    return()=>clearTimeout(t);
+  },[game?.sabotage?.active,game?.sabotage?.triggeredAt,roomCode]);
+
   // Win sound on phase change
   useEffect(()=>{
     if(!game)return;
@@ -1050,6 +1063,15 @@ function App(){
   if(kicked)return<><Starfield/><Page className="justify-center items-center"><Crew color="#ef4444" size={70}/><h2 className="font-title text-3xl text-red-400 mt-4">Removed from game</h2><p className="text-slate-400 mt-2 text-sm text-center">The host removed you from this game.</p><button onClick={()=>{setKicked(false);setJoined(false);['aul_name','aul_room','aul_host'].forEach(k=>localStorage.removeItem(k));}} className="mt-6 bg-slate-700 text-white font-bold px-6 py-3 rounded-xl btn">Back to Home</button></Page></>;
 
   /* ─── Actions ─── */
+  const applyWin=(upd,newPlayers)=>{
+    const w=checkWin(newPlayers,game.imposters||[]);
+    if(!w)return false;
+    const wins=game.wins||{crew:0,imposters:0};
+    upd.phase='win';upd.winner=w;
+    upd['wins/crew']=wins.crew+(w==='crew'?1:0);
+    upd['wins/imposters']=wins.imposters+(w==='imposters'?1:0);
+    return true;
+  };
   const hostGame=async(name)=>{
     const code=genCode();
     await db.ref(`games/${code}`).set({
@@ -1101,14 +1123,20 @@ function App(){
     const count=game.imposterCount||'auto';
     const raw=count==='auto'?(active.length<=6?1:2):parseInt(count);
     const impCount=Math.min(raw,Math.floor(active.length/2));
-    const shuffled=shuffle(active);
-    const imposters=shuffled.slice(0,impCount);
+    // Fair rotation: players who haven't been imposter recently go first.
+    // imposterHistory stores names in the order they were last chosen (oldest first).
+    const history=(game.imposterHistory||[]).filter(n=>active.includes(n));
+    const notRecent=shuffle(active.filter(n=>!history.includes(n)));
+    const recent=active.filter(n=>history.includes(n)).sort((a,b)=>history.indexOf(a)-history.indexOf(b));
+    const imposters=[...notRecent,...recent].slice(0,impCount);
+    // Append new imposters to end of history; trim to keep it from growing unbounded
+    const newHistory=[...history.filter(n=>!imposters.includes(n)),...imposters].slice(-active.length*2);
     const newPlayers={};
     Object.entries(players).forEach(([n,p])=>{
       const isImp=imposters.includes(n);
       newPlayers[n]={...p,alive:true,roleRevealed:false,emergencyUsed:false,sabotagesLeft:isImp?2:0,ghostSabotageUsed:false};
     });
-    await db.ref(`games/${roomCode}`).update({phase:'roles',imposters,players:newPlayers,votes:{},sabotage:{active:false}});
+    await db.ref(`games/${roomCode}`).update({phase:'roles',imposters,players:newPlayers,votes:{},sabotage:{active:false},imposterHistory:newHistory});
   };
 
   const revealDone=async()=>{await db.ref(`games/${roomCode}/players/${myName}`).update({roleRevealed:true});};
@@ -1139,19 +1167,11 @@ function App(){
       upd[`players/${victim}/alive`]=false;
       upd[`players/${victim}/ghostSabotageUsed`]=false;
       const newPlayers={...game.players,[victim]:{...game.players[victim],alive:false}};
-      const w=checkWin(newPlayers,game.imposters||[]);
-      if(w){
-        const wins=game.wins||{crew:0,imposters:0};
-        upd.phase='win';upd.winner=w;
-        upd['wins/crew']=wins.crew+(w==='crew'?1:0);
-        upd['wins/imposters']=wins.imposters+(w==='imposters'?1:0);
-      }else{
-        upd.phase='discussion';
-      }
+      if(!applyWin(upd,newPlayers))upd.phase='discussion';
     }else{
       upd.phase='discussion';
     }
-    await db.ref(`games/${roomCode}`).update(upd);
+    try{await db.ref(`games/${roomCode}`).update(upd);}catch(e){showErr('Failed to report body. Check connection.');}
   };
 
   const confirmDeaths=async(dead)=>{
@@ -1159,38 +1179,33 @@ function App(){
     dead.forEach(n=>{upd[`players/${n}/alive`]=false;upd[`players/${n}/ghostSabotageUsed`]=false;});
     const newPlayers={...game.players};
     dead.forEach(n=>{newPlayers[n]={...newPlayers[n],alive:false};});
-    const w=checkWin(newPlayers,game.imposters||[]);
-    if(w){
-      const wins=game.wins||{crew:0,imposters:0};
-      upd.phase='win';upd.winner=w;
-      upd['wins/crew']=wins.crew+(w==='crew'?1:0);
-      upd['wins/imposters']=wins.imposters+(w==='imposters'?1:0);
-    }else{upd.phase='discussion';const now=Date.now();upd['meeting/calledBy']=myName;upd['meeting/calledAt']=now;upd['meeting/type']='body';upd['meeting/discussionEndsAt']=now+DISCUSSION_MS;upd['soundEvent']={type:'body',triggeredAt:now};}
+    if(!applyWin(upd,newPlayers)){
+      const now=Date.now();
+      upd.phase='discussion';upd['meeting/calledBy']=myName;upd['meeting/calledAt']=now;
+      upd['meeting/type']='body';upd['meeting/discussionEndsAt']=now+DISCUSSION_MS;
+      upd.soundEvent={type:'body',triggeredAt:now};
+    }
     await db.ref(`games/${roomCode}`).update(upd);
   };
 
   const castVote=async(votedFor)=>{
     const me=game?.players?.[myName];
-    if(!me?.alive||me?.isSpectator)return; // dead/spectators cannot vote
-    await db.ref(`games/${roomCode}/votes/${myName}`).set(votedFor||'skip');
-    const snap=await db.ref(`games/${roomCode}`).once('value');
-    const g=snap.val();
-    if(g.phase!=='voting')return;
-    const alive=getAlive(g.players);
-    const votes={...(g.votes||{}),[myName]:votedFor||'skip'};
-    if(alive.every(n=>votes[n]!==undefined))await db.ref(`games/${roomCode}`).update({phase:'results',votes});
+    if(!me?.alive||me?.isSpectator)return;
+    try{
+      await db.ref(`games/${roomCode}/votes/${myName}`).set(votedFor||'skip');
+      const snap=await db.ref(`games/${roomCode}`).once('value');
+      const g=snap.val();
+      if(g.phase!=='voting')return;
+      const alive=getAlive(g.players);
+      const votes={...(g.votes||{}),[myName]:votedFor||'skip'};
+      if(alive.every(n=>votes[n]!==undefined))await db.ref(`games/${roomCode}`).update({phase:'results',votes});
+    }catch(e){showErr('Vote failed. Check connection.');}
   };
 
   const ejectPlayer=async(name)=>{
     const upd={[`players/${name}/alive`]:false};
     const newPlayers={...game.players,[name]:{...game.players[name],alive:false}};
-    const w=checkWin(newPlayers,game.imposters||[]);
-    const wins=game.wins||{crew:0,imposters:0};
-    if(w){
-      upd.phase='win';upd.winner=w;
-      upd['wins/crew']=wins.crew+(w==='crew'?1:0);
-      upd['wins/imposters']=wins.imposters+(w==='imposters'?1:0);
-    }else{upd.phase='scatter';upd.scatterEndsAt=Date.now()+15000;}
+    if(!applyWin(upd,newPlayers)){upd.phase='scatter';upd.scatterEndsAt=Date.now()+15000;}
     await db.ref(`games/${roomCode}`).update(upd);
   };
 
@@ -1199,23 +1214,22 @@ function App(){
   const doGhostSabotage=async()=>{
     const now=Date.now();
     const action=GHOST_ACTIONS[Math.floor(Math.random()*GHOST_ACTIONS.length)];
-    await db.ref(`games/${roomCode}`).update({
+    try{await db.ref(`games/${roomCode}`).update({
       [`players/${myName}/ghostSabotageUsed`]:true,
       ghostSabotageEvent:{triggeredAt:now,action,triggeredBy:myName},
       soundEvent:{type:'ghost_sabotage',triggeredAt:now}
-    });
+    });}catch(e){showErr('Ghost sabotage failed. Check connection.');}
   };
 
   const sabotage=async()=>{
     const myPlayer=game?.players?.[myName];
     if(!myPlayer||myPlayer.sabotagesLeft<=0||game?.sabotage?.active)return;
     const now=Date.now();
-    await db.ref(`games/${roomCode}`).update({
+    try{await db.ref(`games/${roomCode}`).update({
       'sabotage/active':true,'sabotage/triggeredAt':now,
       [`players/${myName}/sabotagesLeft`]:myPlayer.sabotagesLeft-1,
       soundEvent:{type:'sabotage',triggeredAt:now}
-    });
-    setTimeout(()=>db.ref(`games/${roomCode}/sabotage/active`).set(false),5000);
+    });}catch(e){showErr('Sabotage failed. Check connection.');}
   };
 
   const newGame=async()=>{
@@ -1253,6 +1267,7 @@ function App(){
   const isImp=(game?.imposters||[]).includes(myName);
   return<><Starfield/><SabotageOverlay active={sabActive} isImp={isImp}/>
     {ghostOverlay&&<GhostActionOverlay overlay={ghostOverlay} onDone={()=>setGhostOverlay(null)}/>}
+    {errMsg&&<div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 bg-red-900/95 border border-red-600 text-red-200 text-sm font-semibold px-5 py-3 rounded-2xl shadow-xl slide-up max-w-xs text-center pointer-events-none">{errMsg}</div>}
     {roomCode&&<div className="fixed top-3 right-3 z-40 bg-slate-900/90 border border-slate-600 rounded-xl px-3 py-1.5 flex flex-col items-end" style={{backdropFilter:'blur(6px)'}}>
       <span className="text-slate-500 text-xs leading-none mb-0.5">Room Code</span>
       <span className="font-title text-xl text-white leading-none tracking-widest">{roomCode}</span>
