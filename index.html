@@ -44,7 +44,7 @@ input,textarea{user-select:auto!important;-webkit-user-select:auto!important}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef,useMemo,useCallback}=React;
-const VERSION='Mar 30 06:36';
+const VERSION='Mar 30 06:57';
 
 /* ── Firebase ── */
 const FB={
@@ -501,7 +501,7 @@ function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGho
   const handleBodyConfirm=async()=>{if(pressed)return;setPressed(true);setPicking(false);await onBodyFound(victim);};
   const handleEmer=async()=>{if(emerUsed)return;await onEmergency();};
 
-  const otherPlayers=Object.entries(players).filter(([n,p])=>n!==myName&&!p.isSpectator).map(([n])=>n);
+  const otherPlayers=Object.entries(players).filter(([n,p])=>n!==myName&&!p.isSpectator&&p.alive).map(([n])=>n);
 
   if(!isAlive&&!isSpectator) return<GhostView game={game} myName={myName} label="You are dead. Spectating…" onGhostSabotage={onGhostSabotage} hostControls={isHost&&<button onClick={onNewGame} className="w-full text-left text-slate-300 text-sm py-1 btn hover:text-white">🔄 Reset / New Game</button>}/>;
 
