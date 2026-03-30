@@ -44,6 +44,7 @@ input,textarea{user-select:auto!important;-webkit-user-select:auto!important}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef,useMemo,useCallback}=React;
+const VERSION='1a68a77';
 
 /* ── Firebase ── */
 const FB={
@@ -329,6 +330,7 @@ function JoinScreen({onHost,onJoin}){
       <Crew color="#ef4444" size={72}/>
       <h1 className="font-title text-5xl text-red-500 mt-2 tracking-wider">AMONG US</h1>
       <p className="text-cyan-400 text-sm font-semibold mt-1">LIVE EDITION</p>
+      <p className="text-slate-600 text-xs mt-2 font-mono">v{VERSION}</p>
     </div>
     <div className="w-full max-w-sm space-y-3">
       <input value={name} onChange={e=>setName(e.target.value)} placeholder="Your name…"
