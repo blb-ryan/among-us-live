@@ -44,7 +44,7 @@ input,textarea{user-select:auto!important;-webkit-user-select:auto!important}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef,useMemo,useCallback}=React;
-const VERSION='Mar 31 08:12';
+const VERSION='Mar 31 08:26';
 
 /* ── Firebase ── */
 const FB={
@@ -1242,7 +1242,7 @@ function App(){
       phase:'lobby',host:name,
       players:{[name]:{alive:true,roleRevealed:false,color:COLOR_KEYS[0],isSpectator:false,joinedAt:Date.now()}},
       imposters:[],votes:{},winner:null,wins:{crew:0,imposters:0},
-      imposterCount:'auto',sabotage:{active:false,usedBy:null},meeting:{},createdAt:Date.now()
+      imposterCount:'auto',killCount:1,sabotage:{active:false,usedBy:null},meeting:{},createdAt:Date.now()
     });
     localStorage.setItem('aul_name',name);localStorage.setItem('aul_room',code);localStorage.setItem('aul_host','true');
     setMyName(name);setRoomCode(code);setIsHost(true);setJoined(true);
@@ -1284,8 +1284,7 @@ function App(){
     await db.ref(`games/${roomCode}/players/${myName}/color`).set(color);
   };
 
-  const changeImpCount=async(v)=>{await db.ref(`games/${roomCode}/imposterCount`).set(v);};
-  const changeKillCount=async(v)=>{await db.ref(`games/${roomCode}/killCount`).set(v);};
+  const changeSetting=async(key,v)=>{await db.ref(`games/${roomCode}/${key}`).set(v);};
 
   const startGame=async()=>{
     const players=game.players||{};
@@ -1343,9 +1342,8 @@ function App(){
       soundEvent:{type:'body',triggeredAt:SV.TIMESTAMP}
     };
     if(list.length){
-      list.forEach(n=>{upd[`players/${n}/alive`]=false;upd[`players/${n}/ghostSabotageUsed`]=false;});
       const newPlayers={...game.players};
-      list.forEach(n=>{newPlayers[n]={...newPlayers[n],alive:false};});
+      list.forEach(n=>{upd[`players/${n}/alive`]=false;upd[`players/${n}/ghostSabotageUsed`]=false;newPlayers[n]={...newPlayers[n],alive:false};});
       if(!applyWin(upd,newPlayers)){upd.phase='discussion';resetGhostSabotages(upd);}
     }else{
       upd.phase='discussion';resetGhostSabotages(upd);
@@ -1434,7 +1432,7 @@ function App(){
   const props={game,myName,roomCode,isHost,onToggleAllowJoins:toggleAllowJoins};
   let screen;
   switch(game.phase){
-    case'lobby':    screen=<LobbyScreen {...props} onStart={startGame} onLeave={leaveGame} onKick={kickPlayer} onColorChange={changeColor} onImposterCountChange={changeImpCount} onKillCountChange={changeKillCount}/>;break;
+    case'lobby':    screen=<LobbyScreen {...props} onStart={startGame} onLeave={leaveGame} onKick={kickPlayer} onColorChange={changeColor} onImposterCountChange={v=>changeSetting('imposterCount',v)} onKillCountChange={v=>changeSetting('killCount',v)}/>;break;
     case'roles':    screen=<RolesScreen {...props} onRevealDone={revealDone} onStartPlaying={startPlaying}/>;break;
     case'scatter':  screen=<ScatterScreen {...props}/>;break;
     case'discussion':screen=<DiscussionScreen {...props} onEndDiscussion={endDiscussion} onGhostSabotage={doGhostSabotage}/>;break;
