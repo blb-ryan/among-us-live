@@ -44,7 +44,7 @@ input,textarea{user-select:auto!important;-webkit-user-select:auto!important}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef,useMemo,useCallback}=React;
-const VERSION='Mar 30 22:19';
+const VERSION='Mar 30 22:23';
 
 /* ── Firebase ── */
 const FB={
@@ -513,7 +513,7 @@ function RolesScreen({game,myName,isHost,onRevealDone,onStartPlaying}){
 }
 
 /* ── PLAY ── */
-function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGhostSabotage,onNewGame}){
+function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGhostSabotage,onNewGame,onToggleAllowJoins}){
   const players=game.players||{};
   const alive=getAlive(players);
   const isAlive=players[myName]?.alive;
@@ -542,7 +542,7 @@ function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGho
 
   const otherPlayers=Object.entries(players).filter(([n,p])=>n!==myName&&!p.isSpectator&&p.alive).map(([n])=>n);
 
-  if(!isAlive&&!isSpectator) return<GhostView game={game} myName={myName} label="You are dead. Spectating…" onGhostSabotage={onGhostSabotage} hostControls={isHost&&<button onClick={withConfirm('Reset and start a new game?',onNewGame)} className="w-full text-left text-slate-300 text-sm py-1 btn hover:text-white">🔄 Reset / New Game</button>}/>;
+  if(!isAlive&&!isSpectator) return<GhostView game={game} myName={myName} label="You are dead. Spectating…" onGhostSabotage={onGhostSabotage} hostControls={isHost&&<><HostJoinToggle game={game} onToggle={onToggleAllowJoins}/><button onClick={withConfirm('Reset and start a new game?',onNewGame)} className="w-full text-left text-slate-300 text-sm py-1 btn hover:text-white">🔄 Reset / New Game</button></>}/>;
 
   return<Page className="justify-center">
     {/* Victim picker overlay */}
@@ -597,12 +597,17 @@ function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGho
       </>}
     </>}
 
-    {isHost&&<button onClick={withConfirm('Reset and start a new game?',onNewGame)} className="mt-10 text-slate-500 text-xs hover:text-slate-300 btn underline">Reset / New Game</button>}
+    {isHost&&<div className="mt-10 flex flex-col items-center gap-2">
+      <button onClick={onToggleAllowJoins} className={`text-xs btn underline ${game.allowJoins?'text-green-400 hover:text-green-200':'text-slate-500 hover:text-slate-300'}`}>
+        {game.allowJoins?'🔒 Close to new players':'🔓 Allow players to join'}
+      </button>
+      <button onClick={withConfirm('Reset and start a new game?',onNewGame)} className="text-slate-500 text-xs hover:text-slate-300 btn underline">Reset / New Game</button>
+    </div>}
   </Page>;
 }
 
 /* ── DISCUSSION ── */
-function DiscussionScreen({game,myName,isHost,onEndDiscussion,onGhostSabotage}){
+function DiscussionScreen({game,myName,isHost,onEndDiscussion,onGhostSabotage,onToggleAllowJoins}){
   const meeting=game.meeting||{};
   const [remaining,setRemaining]=useState(()=>meeting.discussionEndsAt?Math.max(0,meeting.discussionEndsAt-Date.now()):120000);
   const players=game.players||{};
@@ -610,7 +615,7 @@ function DiscussionScreen({game,myName,isHost,onEndDiscussion,onGhostSabotage}){
   const isSpectator=players[myName]?.isSpectator;
   const isAlive=players[myName]?.alive;
 
-  if(!isAlive&&!isSpectator) return<GhostView game={game} myName={myName} label="You are dead — spectating discussion" onGhostSabotage={onGhostSabotage} hostControls={isHost&&<button onClick={onEndDiscussion} className="w-full text-left text-slate-300 text-sm py-1 btn hover:text-white">⏩ Skip to Vote</button>}/>;
+  if(!isAlive&&!isSpectator) return<GhostView game={game} myName={myName} label="You are dead — spectating discussion" onGhostSabotage={onGhostSabotage} hostControls={isHost&&<><HostJoinToggle game={game} onToggle={onToggleAllowJoins}/><button onClick={onEndDiscussion} className="w-full text-left text-slate-300 text-sm py-1 btn hover:text-white">⏩ Skip to Vote</button></>}/>;
 
   useEffect(()=>{
     if(!meeting.discussionEndsAt)return;
@@ -686,7 +691,7 @@ function ReportScreen({game,myName,isHost,onConfirm}){
 }
 
 /* ── VOTING ── */
-function VotingScreen({game,myName,isHost,onVote,onCancelVote,onGhostSabotage}){
+function VotingScreen({game,myName,isHost,onVote,onCancelVote,onGhostSabotage,onToggleAllowJoins}){
   const players=game.players||{};
   const alive=getAlive(players);
   const votes=game.votes||{};
@@ -696,7 +701,7 @@ function VotingScreen({game,myName,isHost,onVote,onCancelVote,onGhostSabotage}){
   const isAlive=players[myName]?.alive;
   const isSpec=players[myName]?.isSpectator;
 
-  if(!isAlive&&!isSpec) return<GhostView game={game} myName={myName} label="You are dead — spectating the vote" onGhostSabotage={onGhostSabotage} hostControls={isHost&&<button onClick={onCancelVote} className="w-full text-left text-slate-300 text-sm py-1 btn hover:text-white">✕ Cancel vote (stuck?)</button>}/>;
+  if(!isAlive&&!isSpec) return<GhostView game={game} myName={myName} label="You are dead — spectating the vote" onGhostSabotage={onGhostSabotage} hostControls={isHost&&<><HostJoinToggle game={game} onToggle={onToggleAllowJoins}/><button onClick={onCancelVote} className="w-full text-left text-slate-300 text-sm py-1 btn hover:text-white">✕ Cancel vote (stuck?)</button></>}/>;
   if(isSpec) return<GhostVoteWatch game={game} myName={myName}/>;
 
   if(myVote!==undefined) return<Page className="justify-center">
@@ -873,6 +878,12 @@ function GhostActionOverlay({overlay,onDone}){
     <p className={`font-title text-4xl ${secs<=2?'text-red-400':'text-purple-300'}`}>{secs}</p>
   </div>;
 }
+
+const HostJoinToggle=({game,onToggle})=>(
+  <button onClick={onToggle} className={`w-full text-left text-sm py-1 btn ${game.allowJoins?'text-green-400 hover:text-green-200':'text-slate-300 hover:text-white'}`}>
+    {game.allowJoins?'🔒 Close to new players':'🔓 Allow players to join'}
+  </button>
+);
 
 function GhostView({game,myName,label,onGhostSabotage,hostControls}){
   const players=game.players||{};
@@ -1227,12 +1238,16 @@ function App(){
     const snap=await db.ref(`games/${code}`).once('value');
     const g=snap.val();
     if(!g)return'Room not found.';
-    if(g.phase!=='lobby')return'Game already in progress.';
-    const taken=g.players&&Object.keys(g.players).some(n=>n.toLowerCase()===name.toLowerCase());
-    if(taken)return'That name is taken.';
-    const takenColors=Object.values(g.players||{}).map(p=>p.color).filter(Boolean);
-    const freeColor=COLOR_KEYS.find(c=>!takenColors.includes(c))||COLOR_KEYS[0];
-    await db.ref(`games/${code}/players/${name}`).set({alive:true,roleRevealed:false,color:freeColor,isSpectator:asSpectator,joinedAt:Date.now()});
+    const alreadyIn=g.players?.[name]; // exact name match = reconnect
+    if(g.phase!=='lobby'&&!alreadyIn&&!g.allowJoins)return'Game already in progress.';
+    const nameTaken=!alreadyIn&&g.players&&Object.keys(g.players).some(n=>n.toLowerCase()===name.toLowerCase());
+    if(nameTaken)return'That name is taken.';
+    if(!alreadyIn){
+      const takenColors=Object.values(g.players||{}).map(p=>p.color).filter(Boolean);
+      const freeColor=COLOR_KEYS.find(c=>!takenColors.includes(c))||COLOR_KEYS[0];
+      const midGame=g.phase!=='lobby';
+      await db.ref(`games/${code}/players/${name}`).set({alive:!midGame,roleRevealed:midGame,color:freeColor,isSpectator:midGame||asSpectator,joinedAt:Date.now()});
+    }
     localStorage.setItem('aul_name',name);localStorage.setItem('aul_room',code);localStorage.setItem('aul_host','false');
     setMyName(name);setRoomCode(code);setIsHost(false);setJoined(true);
     return null;
@@ -1356,6 +1371,8 @@ function App(){
 
   const noEject=async()=>{await db.ref(`games/${roomCode}`).update({phase:'scatter',scatterEndsAt:Date.now()+15000});};
 
+  const toggleAllowJoins=async()=>{await db.ref(`games/${roomCode}/allowJoins`).set(!game.allowJoins);};
+
   // Broadcast ejection result to all clients; auto-advance fires after 5s
   const revealEjection=async(name)=>{
     await db.ref(`games/${roomCode}`).update({ejectionReveal:{name:name||null,at:SV.TIMESTAMP}});
@@ -1388,7 +1405,7 @@ function App(){
     names.forEach(n=>{players[n]={...game.players[n],alive:true,roleRevealed:false,emergencyUsed:false,sabotagesLeft:0,ghostSabotageUsed:false};});
     await db.ref(`games/${roomCode}`).update({
       phase:'lobby',imposters:[],votes:{},winner:null,players,
-      sabotage:{active:false},meeting:{},ejectionReveal:null
+      sabotage:{active:false},meeting:{},ejectionReveal:null,allowJoins:false
     });
   };
 
@@ -1400,7 +1417,7 @@ function App(){
   if(!joined)return<><Starfield/><JoinScreen onHost={hostGame} onJoin={joinGame}/></>;
   if(!game)return<><Starfield/><LoadingScreen/></>;
 
-  const props={game,myName,roomCode,isHost};
+  const props={game,myName,roomCode,isHost,onToggleAllowJoins:toggleAllowJoins};
   let screen;
   switch(game.phase){
     case'lobby':    screen=<LobbyScreen {...props} onStart={startGame} onLeave={leaveGame} onKick={kickPlayer} onColorChange={changeColor} onImposterCountChange={changeImpCount}/>;break;
