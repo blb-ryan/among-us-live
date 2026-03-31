@@ -43,8 +43,8 @@ input,textarea{user-select:auto!important;-webkit-user-select:auto!important}
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const {useState,useEffect,useRef,useMemo,useCallback}=React;
-const VERSION='Mar 31 08:26';
+const {useState,useEffect,useRef,useMemo}=React;
+const VERSION='Mar 31 09:45';
 
 /* ── Firebase ── */
 const FB={
@@ -289,10 +289,10 @@ const withConfirm=(msg,fn)=>()=>{if(window.confirm(msg))fn();};
 function fmtMs(ms){const s=Math.max(0,Math.ceil(ms/1000));return`${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;}
 
 /* ── Visual Components ── */
-function Starfield(){
+const Starfield=React.memo(function Starfield(){
   const stars=useMemo(()=>Array.from({length:55},(_,i)=>({id:i,left:Math.random()*100,sz:Math.random()*2.5+.4,dur:Math.random()*22+14,del:Math.random()*22,op:Math.random()*.45+.3})),[]);
   return<div className="fixed inset-0 overflow-hidden pointer-events-none z-0">{stars.map(s=><div key={s.id} className="star" style={{left:`${s.left}%`,bottom:'-4px',width:`${s.sz}px`,height:`${s.sz}px`,opacity:s.op,animationDuration:`${s.dur}s`,animationDelay:`${s.del}s`}}/>)}</div>;
-}
+});
 
 function Crew({color='#06b6d4',size=72,ghost=false}){
   return<svg width={size} height={size} viewBox="0 0 100 120" fill="none" style={{opacity:ghost?.45:1}}>
@@ -619,7 +619,7 @@ function PlayScreen({game,myName,isHost,onBodyFound,onEmergency,onSabotage,onGho
 /* ── DISCUSSION ── */
 function DiscussionScreen({game,myName,isHost,onEndDiscussion,onGhostSabotage,onToggleAllowJoins}){
   const meeting=game.meeting||{};
-  const [remaining,setRemaining]=useState(()=>meeting.discussionEndsAt?Math.max(0,meeting.discussionEndsAt-Date.now()):120000);
+  const [remaining,setRemaining]=useState(()=>meeting.discussionEndsAt?Math.max(0,meeting.discussionEndsAt-(Date.now()+_serverOffset)):120000);
   const players=game.players||{};
   const alive=getAlive(players);
   const isSpectator=players[myName]?.isSpectator;
@@ -629,7 +629,7 @@ function DiscussionScreen({game,myName,isHost,onEndDiscussion,onGhostSabotage,on
 
   useEffect(()=>{
     if(!meeting.discussionEndsAt)return;
-    const iv=setInterval(()=>setRemaining(Math.max(0,meeting.discussionEndsAt-Date.now())),500);
+    const iv=setInterval(()=>setRemaining(Math.max(0,meeting.discussionEndsAt-(Date.now()+_serverOffset))),500);
     return()=>clearInterval(iv);
   },[meeting.discussionEndsAt]);
 
@@ -668,39 +668,6 @@ function DiscussionScreen({game,myName,isHost,onEndDiscussion,onGhostSabotage,on
       ))}
     </div>
     {(!isAlive&&!isSpectator)&&<p className="mt-4 text-slate-500 text-sm">You are dead — spectating</p>}
-  </Page>;
-}
-
-/* ── REPORT ── */
-function ReportScreen({game,myName,isHost,onConfirm}){
-  const alive=getAlive(game.players||{});
-  const [dead,setDead]=useState([]);
-  const isAlive=(game.players||{})[myName]?.alive;
-  const isSpec=(game.players||{})[myName]?.isSpectator;
-  const toggle=n=>setDead(d=>d.includes(n)?d.filter(x=>x!==n):[...d,n]);
-
-  if(!isHost) return<Page className="justify-center">
-    <Crew color="#ef4444" size={70}/>
-    <h2 className="font-title text-3xl text-red-400 mt-4 mb-3">BODY FOUND!</h2>
-    <p className="text-slate-300 text-center text-sm">Waiting for host to mark who died…</p>
-  </Page>;
-
-  return<Page>
-    <h2 className="font-title text-3xl text-red-400 mb-1">BODY FOUND!</h2>
-    <p className="text-slate-300 text-sm mb-5 text-center">Tap to mark who was killed</p>
-    <div className="w-full max-w-sm space-y-3 mb-6">
-      {alive.map(n=>(
-        <button key={n} onClick={()=>toggle(n)}
-          className={`w-full py-4 px-5 rounded-xl font-bold text-lg btn border-2
-            ${dead.includes(n)?'bg-red-900/60 border-red-500 text-red-300':'bg-slate-800 border-slate-600 text-white'}`}>
-          {n}{dead.includes(n)?' — DEAD':''}
-        </button>
-      ))}
-    </div>
-    {dead.length>0&&<button onClick={()=>onConfirm(dead)}
-      className="w-full max-w-sm bg-red-600 text-white font-title text-xl py-4 rounded-2xl btn">
-      CONFIRM {dead.length} DEATH{dead.length>1?'S':''}
-    </button>}
   </Page>;
 }
 
@@ -791,15 +758,16 @@ function ResultsScreen({game,myName,isHost,onReveal}){
   const votes=game.votes||{};
   const imposters=game.imposters||[];
 
-  const tally={};
-  alive.forEach(n=>{tally[n]=0;});
-  Object.values(votes).forEach(v=>{if(v&&v!=='skip'&&tally[v]!==undefined)tally[v]++;});
-  const sorted=Object.entries(tally).sort(([,a],[,b])=>b-a);
-  const skipCount=Object.values(votes).filter(v=>v==='skip').length;
-  const top=sorted[0]?.[1]||0;
-  const topPlayers=sorted.filter(([,v])=>v===top&&v>0);
-  const isTie=topPlayers.length!==1;
-  const skipWins=skipCount>top;
+  const {sorted,skipCount,top,topPlayers,isTie,skipWins}=useMemo(()=>{
+    const tally={};
+    alive.forEach(n=>{tally[n]=0;});
+    Object.values(votes).forEach(v=>{if(v&&v!=='skip'&&tally[v]!==undefined)tally[v]++;});
+    const sorted=Object.entries(tally).sort(([,a],[,b])=>b-a);
+    const skipCount=Object.values(votes).filter(v=>v==='skip').length;
+    const top=sorted[0]?.[1]||0;
+    const topPlayers=sorted.filter(([,v])=>v===top&&v>0);
+    return{sorted,skipCount,top,topPlayers,isTie:topPlayers.length!==1,skipWins:skipCount>top};
+  },[votes,alive]);
   const reveal=game.ejectionReveal;
 
   // Countdown shown during reveal
@@ -948,9 +916,9 @@ function GhostView({game,myName,label,onGhostSabotage,hostControls}){
 
 /* ── SCATTER ── */
 function ScatterScreen({game}){
-  const [remaining,setRemaining]=useState(()=>Math.max(0,game.scatterEndsAt-Date.now()));
+  const [remaining,setRemaining]=useState(()=>Math.max(0,game.scatterEndsAt-(Date.now()+_serverOffset)));
   useEffect(()=>{
-    const iv=setInterval(()=>setRemaining(r=>Math.max(0,game.scatterEndsAt-Date.now())),100);
+    const iv=setInterval(()=>setRemaining(r=>Math.max(0,game.scatterEndsAt-(Date.now()+_serverOffset))),100);
     return()=>clearInterval(iv);
   },[game.scatterEndsAt]);
   const secs=Math.ceil(remaining/1000);
@@ -1049,7 +1017,6 @@ const PHASE_LABELS={
   discussion:'An emergency meeting was happening',
   voting:'A vote was in progress',
   results:'Vote results were being revealed',
-  report:'A body was being reported',
   roles:'Roles were being assigned',
 };
 function ResumeScreen({game,myName,roomCode,onResume,onNewGame}){
@@ -1084,6 +1051,7 @@ function App(){
   const prevPhaseRef=useRef(null);
   const lastSoundRef=useRef(0);
   const lastGhostRef=useRef(0);
+  const lastSavedPhaseRef=useRef(null);
   const [ghostOverlay,setGhostOverlay]=useState(null);
   const [errMsg,setErrMsg]=useState(null);
   const [hostToast,setHostToast]=useState(false);
@@ -1126,8 +1094,8 @@ function App(){
       const g=snap.val();
       setGame(g);
       if(!g){localStorage.removeItem('aul_game');return;}
-      if(g.phase==='win'||g.phase==='lobby')localStorage.removeItem('aul_game');
-      else localStorage.setItem('aul_game',JSON.stringify(g));
+      if(g.phase==='win'||g.phase==='lobby'){localStorage.removeItem('aul_game');lastSavedPhaseRef.current=null;}
+      else if(g.phase!==lastSavedPhaseRef.current){localStorage.setItem('aul_game',JSON.stringify(g));lastSavedPhaseRef.current=g.phase;}
       // Kicked detection
       if(g.players&&!g.players[myName]&&myName){setKicked(true);return;}
       // Host transfer
@@ -1242,7 +1210,7 @@ function App(){
       phase:'lobby',host:name,
       players:{[name]:{alive:true,roleRevealed:false,color:COLOR_KEYS[0],isSpectator:false,joinedAt:Date.now()}},
       imposters:[],votes:{},winner:null,wins:{crew:0,imposters:0},
-      imposterCount:'auto',killCount:1,sabotage:{active:false,usedBy:null},meeting:{},createdAt:Date.now()
+      imposterCount:'auto',killCount:1,sabotage:{active:false},meeting:{},createdAt:Date.now()
     });
     localStorage.setItem('aul_name',name);localStorage.setItem('aul_room',code);localStorage.setItem('aul_host','true');
     setMyName(name);setRoomCode(code);setIsHost(true);setJoined(true);
@@ -1305,11 +1273,11 @@ function App(){
       const isImp=imposters.includes(n);
       newPlayers[n]={...p,alive:true,roleRevealed:false,emergencyUsed:false,sabotagesLeft:isImp?2:0,ghostSabotageUsed:false};
     });
-    await db.ref(`games/${roomCode}`).update({phase:'roles',imposters,players:newPlayers,votes:{},sabotage:{active:false},imposterHistory:newHistory});
+    await db.ref(`games/${roomCode}`).update({phase:'roles',imposters,players:newPlayers,votes:{},sabotage:{active:false},imposterHistory:newHistory,allowJoins:false});
   };
 
   const revealDone=async()=>{await db.ref(`games/${roomCode}/players/${myName}`).update({roleRevealed:true});};
-  const startPlaying=async()=>{await db.ref(`games/${roomCode}`).update({phase:'scatter',scatterEndsAt:Date.now()+15000});};
+  const startPlaying=async()=>{await db.ref(`games/${roomCode}`).update({phase:'scatter',scatterEndsAt:Date.now()+_serverOffset+15000});};
 
   // Reset ghost sabotage for all dead players so they get one use per meeting
   const resetGhostSabotages=(upd)=>{
@@ -1319,10 +1287,10 @@ function App(){
   };
 
   const startMeeting=async(type)=>{
-    const now=Date.now();
+    const now=Date.now()+_serverOffset;
     const upd={
       phase:'discussion',
-      meeting:{calledBy:myName,calledAt:now,type,discussionEndsAt:now+DISCUSSION_MS},
+      meeting:{calledBy:myName,type,discussionEndsAt:now+DISCUSSION_MS},
       soundEvent:{type:'meeting',triggeredAt:SV.TIMESTAMP}
     };
     if(type==='emergency')upd[`players/${myName}/emergencyUsed`]=true;
@@ -1335,10 +1303,10 @@ function App(){
   };
 
   const bodyFound=async(victims)=>{
-    const now=Date.now();
+    const now=Date.now()+_serverOffset;
     const list=Array.isArray(victims)?victims.filter(Boolean):(victims?[victims]:[]);
     const upd={
-      meeting:{calledBy:myName,calledAt:now,type:'body',victims:list,victim:list[0]||null,discussionEndsAt:now+DISCUSSION_MS},
+      meeting:{calledBy:myName,type:'body',victims:list,victim:list[0]||null,discussionEndsAt:now+DISCUSSION_MS},
       soundEvent:{type:'body',triggeredAt:SV.TIMESTAMP}
     };
     if(list.length){
@@ -1349,21 +1317,6 @@ function App(){
       upd.phase='discussion';resetGhostSabotages(upd);
     }
     try{await db.ref(`games/${roomCode}`).update(upd);}catch(e){showErr('Failed to report body. Check connection.');}
-  };
-
-  const confirmDeaths=async(dead)=>{
-    const upd={};
-    dead.forEach(n=>{upd[`players/${n}/alive`]=false;upd[`players/${n}/ghostSabotageUsed`]=false;});
-    const newPlayers={...game.players};
-    dead.forEach(n=>{newPlayers[n]={...newPlayers[n],alive:false};});
-    if(!applyWin(upd,newPlayers)){
-      const now=Date.now();
-      upd.phase='discussion';upd['meeting/calledBy']=myName;upd['meeting/calledAt']=now;
-      upd['meeting/type']='body';upd['meeting/discussionEndsAt']=now+DISCUSSION_MS;
-      upd.soundEvent={type:'body',triggeredAt:SV.TIMESTAMP};
-      resetGhostSabotages(upd);
-    }
-    await db.ref(`games/${roomCode}`).update(upd);
   };
 
   const castVote=async(votedFor)=>{
@@ -1377,11 +1330,11 @@ function App(){
   const ejectPlayer=async(name)=>{
     const upd={[`players/${name}/alive`]:false};
     const newPlayers={...game.players,[name]:{...game.players[name],alive:false}};
-    if(!applyWin(upd,newPlayers)){upd.phase='scatter';upd.scatterEndsAt=Date.now()+15000;}
+    if(!applyWin(upd,newPlayers)){upd.phase='scatter';upd.scatterEndsAt=Date.now()+_serverOffset+15000;}
     await db.ref(`games/${roomCode}`).update(upd);
   };
 
-  const noEject=async()=>{await db.ref(`games/${roomCode}`).update({phase:'scatter',scatterEndsAt:Date.now()+15000});};
+  const noEject=async()=>{await db.ref(`games/${roomCode}`).update({phase:'scatter',scatterEndsAt:Date.now()+_serverOffset+15000});};
 
   const toggleAllowJoins=async()=>{await db.ref(`games/${roomCode}/allowJoins`).set(!game.allowJoins);};
 
@@ -1417,7 +1370,8 @@ function App(){
     names.forEach(n=>{players[n]={...game.players[n],alive:true,roleRevealed:false,emergencyUsed:false,sabotagesLeft:0,ghostSabotageUsed:false};});
     await db.ref(`games/${roomCode}`).update({
       phase:'lobby',imposters:[],votes:{},winner:null,players,
-      sabotage:{active:false},meeting:{},ejectionReveal:null,allowJoins:false
+      sabotage:{active:false},meeting:{},ejectionReveal:null,allowJoins:false,
+      soundEvent:null,ghostSabotageEvent:null
     });
   };
 
@@ -1437,7 +1391,6 @@ function App(){
     case'scatter':  screen=<ScatterScreen {...props}/>;break;
     case'discussion':screen=<DiscussionScreen {...props} onEndDiscussion={endDiscussion} onGhostSabotage={doGhostSabotage}/>;break;
     case'play':     screen=<PlayScreen {...props} onBodyFound={bodyFound} onEmergency={()=>startMeeting('emergency')} onSabotage={sabotage} onGhostSabotage={doGhostSabotage} onNewGame={newGame}/>;break;
-    case'report':   screen=<ReportScreen {...props} onConfirm={confirmDeaths}/>;break;
     case'voting':   screen=<VotingScreen {...props} onVote={castVote} onCancelVote={cancelVote} onGhostSabotage={doGhostSabotage}/>;break;
     case'results':  screen=<ResultsScreen {...props} onReveal={revealEjection}/>;break;
     case'win':      screen=<WinScreen {...props} onNewGame={newGame} onLeave={leaveGame}/>;break;
