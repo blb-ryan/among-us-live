@@ -44,7 +44,7 @@ input,textarea{user-select:auto!important;-webkit-user-select:auto!important}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef,useMemo,useCallback}=React;
-const VERSION='Mar 30 22:12';
+const VERSION='Mar 30 22:19';
 
 /* ── Firebase ── */
 const FB={
@@ -66,6 +66,7 @@ db.ref('.info/serverTimeOffset').on('value',s=>{_serverOffset=s.val()||0;});
 // giving all clients time to receive the Firebase event before playing together
 const SOUND_BUFFER_MS=300;
 function playSoundAt(fn,serverTs){const delay=Math.max(0,(serverTs+SOUND_BUFFER_MS-_serverOffset)-Date.now());setTimeout(fn,delay);}
+const GHOST_COOLDOWN_MS=15000; // ms between ghost sabotages game-wide
 
 /* ── Ghost Sabotage Actions ── */
 const GHOST_ACTIONS=[
@@ -93,6 +94,26 @@ const GHOST_ACTIONS=[
   "Yell 'RED IS SUS!' as dramatically as possible 🔴",
   "Beat your chest like a gorilla twice 🦍",
   "Do three jumping jacks right now 🏃",
+  "Stare at someone without blinking for 5 seconds 👁️",
+  "Whisper 'I know what you did' to the person on your left 🤫",
+  "Dramatically flip an imaginary table 🪑",
+  "Do your best impression of a ghost going 'WOOOOO' 👻",
+  "Narrate everything happening right now in a sports announcer voice 📣",
+  "Tap someone on the shoulder then look away innocently 😇",
+  "Say 'among us' in 5 different accents in a row 🌍",
+  "Pretend your phone is on fire and panic for 3 seconds 🔥",
+  "Do a dramatic slow clap all by yourself 👏",
+  "Accuse the person to your right of being the imposter, very seriously 🫵",
+  "Sneeze so hard you fall off your chair (or pretend to) 🤣",
+  "Make eye contact with someone and slowly shake your head 😤",
+  "Yell 'I SAW IT!' then immediately say 'never mind' 🙈",
+  "Do your best impression of someone trying to vent through a wall 🤸",
+  "Pound the table and say 'THIS IS OUTRAGEOUS' in your deepest voice 😤",
+  "Scream 'WHERE'S THE BODY?!' like it's the first time you've heard this 😱",
+  "Stand up and take a very formal bow, then sit down 🎩",
+  "Look around suspiciously and whisper 'they're watching us' 👀",
+  "Laugh maniacally for exactly 3 seconds then stop dead 😂",
+  "Point at the ceiling, and when everyone looks up, look away 😏",
 ];
 
 /* ── Constants ── */
@@ -744,15 +765,12 @@ function GhostVoteWatch({game,myName}){
 }
 
 /* ── RESULTS ── */
-function ResultsScreen({game,myName,isHost,onEject,onNoEject}){
-  const [ejectedName,setEjectedName]=useState(null);
-  const [showReveal,setShowReveal]=useState(false);
+function ResultsScreen({game,myName,isHost,onReveal}){
+  const [countdown,setCountdown]=useState(5);
   const players=game.players||{};
   const alive=getAlive(players);
   const votes=game.votes||{};
   const imposters=game.imposters||[];
-  const isAlive=players[myName]?.alive;
-  const isSpec=players[myName]?.isSpectator;
 
   const tally={};
   alive.forEach(n=>{tally[n]=0;});
@@ -763,21 +781,42 @@ function ResultsScreen({game,myName,isHost,onEject,onNoEject}){
   const topPlayers=sorted.filter(([,v])=>v===top&&v>0);
   const isTie=topPlayers.length!==1;
   const skipWins=skipCount>top;
+  const reveal=game.ejectionReveal;
 
-  if(showReveal){
-    const wasImp=imposters.includes(ejectedName);
-    if(wasImp)playSound('eject');
+  // Countdown shown during reveal
+  useEffect(()=>{
+    if(!reveal?.at)return;
+    const tick=setInterval(()=>{
+      setCountdown(Math.max(0,Math.ceil((reveal.at+5000-(Date.now()+_serverOffset))/1000)));
+    },200);
+    return()=>clearInterval(tick);
+  },[reveal?.at]);
+
+  // Play eject sound for everyone when reveal appears
+  useEffect(()=>{
+    if(reveal?.name&&imposters.includes(reveal.name))playSound('eject');
+  },[reveal?.at]);
+
+  if(reveal){
+    const ejectedName=reveal.name;
+    if(ejectedName){
+      const wasImp=imposters.includes(ejectedName);
+      return<Page className="justify-center">
+        <div className="reveal-pop flex flex-col items-center w-full max-w-sm">
+          <Crew color={wasImp?COLORS.red:COLORS.cyan} size={90}/>
+          <h2 className="font-title text-3xl text-white mt-4 mb-1">{ejectedName} ejected!</h2>
+          <p className={`font-title text-3xl mt-1 text-center ${wasImp?'text-red-500':'text-cyan-400'}`}>
+            {wasImp?`${ejectedName} WAS an Imposter!`:`${ejectedName} was NOT an Imposter…`}
+          </p>
+          <p className="mt-6 text-slate-400 text-sm">Continuing in {countdown}…</p>
+        </div>
+      </Page>;
+    }
     return<Page className="justify-center">
       <div className="reveal-pop flex flex-col items-center w-full max-w-sm">
-        <Crew color={wasImp?'#ef4444':'#06b6d4'} size={90}/>
-        <h2 className="font-title text-3xl text-white mt-4 mb-1">{ejectedName} ejected!</h2>
-        <p className={`font-title text-3xl mt-1 text-center ${wasImp?'text-red-500':'text-cyan-400'}`}>
-          {wasImp?`${ejectedName} WAS an Imposter!`:`${ejectedName} was NOT an Imposter…`}
-        </p>
-        {isHost?<button onClick={()=>onEject(ejectedName)}
-          className="mt-8 w-full bg-slate-700 text-white font-bold text-lg py-4 rounded-2xl btn border border-slate-500">
-          CONTINUE
-        </button>:<p className="mt-6 text-slate-400 text-sm">Waiting for host…</p>}
+        <h2 className="font-title text-4xl text-yellow-400 mt-4 mb-2">No Ejection</h2>
+        <p className="text-slate-300 text-sm mb-1">{skipWins?'Skips outnumbered votes.':'The vote was tied.'}</p>
+        <p className="mt-4 text-slate-400 text-sm">Continuing in {countdown}…</p>
       </div>
     </Page>;
   }
@@ -796,11 +835,11 @@ function ResultsScreen({game,myName,isHost,onEject,onNoEject}){
         <span className={`font-bold text-lg ${skipWins?'text-yellow-400':'text-slate-500'}`}>{skipCount}v</span>
       </div>}
     </div>
-    {isHost&&!isTie&&!skipWins&&<button onClick={()=>{setEjectedName(topPlayers[0][0]);setShowReveal(true);}}
+    {isHost&&!isTie&&!skipWins&&<button onClick={()=>onReveal(topPlayers[0][0])}
       className="w-full max-w-sm bg-red-600 text-white font-title text-xl py-4 rounded-2xl btn pulse-glow mb-2">
       EJECT {topPlayers[0][0].toUpperCase()}
     </button>}
-    {isHost&&(isTie||skipWins)&&<button onClick={onNoEject}
+    {isHost&&(isTie||skipWins)&&<button onClick={()=>onReveal(null)}
       className="w-full max-w-sm bg-slate-700 text-white font-title text-xl py-4 rounded-2xl btn border border-slate-500">
       {skipWins?'SKIPPED — NO EJECTION':'TIE — NO EJECTION'}
     </button>}
@@ -841,15 +880,26 @@ function GhostView({game,myName,label,onGhostSabotage,hostControls}){
   const imposters=game.imposters||[];
   const used=players[myName]?.ghostSabotageUsed;
   const sentAction=used&&game.ghostSabotageEvent?.triggeredBy===myName?game.ghostSabotageEvent.action:null;
+  const lastSabAt=game.ghostSabotageEvent?.triggeredAt||0;
+  const [cooldownSecs,setCooldownSecs]=useState(()=>Math.max(0,Math.ceil((lastSabAt+GHOST_COOLDOWN_MS-(Date.now()+_serverOffset))/1000)));
+  useEffect(()=>{
+    const iv=setInterval(()=>setCooldownSecs(Math.max(0,Math.ceil((lastSabAt+GHOST_COOLDOWN_MS-(Date.now()+_serverOffset))/1000))),500);
+    return()=>clearInterval(iv);
+  },[lastSabAt]);
+  const onCooldown=cooldownSecs>0;
 
   return<Page className="justify-center">
     <Crew color="#475569" size={70} ghost/>
     <h2 className="font-title text-2xl text-slate-400 mt-3 mb-1">👻 You are dead</h2>
     {label&&<p className="text-slate-500 text-sm mb-4 text-center">{label}</p>}
-    {onGhostSabotage&&!used&&<button onClick={()=>onGhostSabotage()}
+    {onGhostSabotage&&!used&&!onCooldown&&<button onClick={()=>onGhostSabotage()}
       className="mb-5 bg-purple-900/60 hover:bg-purple-800/80 text-purple-300 font-bold px-6 py-3 rounded-xl btn border border-purple-600 text-sm">
       👻 Ghost Sabotage (1 left)
     </button>}
+    {onGhostSabotage&&!used&&onCooldown&&<div className="mb-5 bg-slate-800/60 border border-slate-600 rounded-2xl px-4 py-3 text-center max-w-xs">
+      <p className="text-slate-400 text-sm font-bold mb-1">⏳ Cooldown — {cooldownSecs}s</p>
+      <p className="text-slate-500 text-xs">Another ghost just haunted. Wait your turn!</p>
+    </div>}
     {onGhostSabotage&&used&&<div className="mb-5 bg-purple-900/30 border border-purple-800 rounded-2xl px-4 py-3 text-center max-w-xs">
       <p className="text-purple-400 text-sm font-bold mb-1">😈 Haunting in progress!</p>
       {sentAction&&<p className="text-slate-400 text-xs leading-snug">You sent: {sentAction}</p>}
@@ -1130,6 +1180,18 @@ function App(){
     return()=>clearTimeout(t);
   },[game?.sabotage?.active,game?.sabotage?.triggeredAt,roomCode]);
 
+  // Results reveal auto-advance — host executes ejection after 5s countdown
+  useEffect(()=>{
+    if(game?.phase!=='results'||!isHost||!game?.ejectionReveal?.at)return;
+    const name=game.ejectionReveal.name;
+    const delay=Math.max(0,(game.ejectionReveal.at+5000)-(Date.now()+_serverOffset));
+    const t=setTimeout(async()=>{
+      if(name) await ejectPlayer(name);
+      else await noEject();
+    },delay);
+    return()=>clearTimeout(t);
+  },[game?.phase,game?.ejectionReveal?.at,isHost,roomCode]);
+
   // Win sound on phase change
   useEffect(()=>{
     if(!game)return;
@@ -1222,6 +1284,13 @@ function App(){
   const revealDone=async()=>{await db.ref(`games/${roomCode}/players/${myName}`).update({roleRevealed:true});};
   const startPlaying=async()=>{await db.ref(`games/${roomCode}`).update({phase:'scatter',scatterEndsAt:Date.now()+15000});};
 
+  // Reset ghost sabotage for all dead players so they get one use per meeting
+  const resetGhostSabotages=(upd)=>{
+    Object.entries(game.players||{}).forEach(([n,p])=>{
+      if(!p.alive&&!p.isSpectator)upd[`players/${n}/ghostSabotageUsed`]=false;
+    });
+  };
+
   const startMeeting=async(type)=>{
     const now=Date.now();
     const upd={
@@ -1230,11 +1299,12 @@ function App(){
       soundEvent:{type:'meeting',triggeredAt:SV.TIMESTAMP}
     };
     if(type==='emergency')upd[`players/${myName}/emergencyUsed`]=true;
+    resetGhostSabotages(upd);
     await db.ref(`games/${roomCode}`).update(upd);
   };
 
   const endDiscussion=async()=>{
-    await db.ref(`games/${roomCode}`).update({phase:'voting',votes:{}});
+    await db.ref(`games/${roomCode}`).update({phase:'voting',votes:{},ejectionReveal:null});
   };
 
   const bodyFound=async(victim)=>{
@@ -1247,9 +1317,9 @@ function App(){
       upd[`players/${victim}/alive`]=false;
       upd[`players/${victim}/ghostSabotageUsed`]=false;
       const newPlayers={...game.players,[victim]:{...game.players[victim],alive:false}};
-      if(!applyWin(upd,newPlayers))upd.phase='discussion';
+      if(!applyWin(upd,newPlayers)){upd.phase='discussion';resetGhostSabotages(upd);}
     }else{
-      upd.phase='discussion';
+      upd.phase='discussion';resetGhostSabotages(upd);
     }
     try{await db.ref(`games/${roomCode}`).update(upd);}catch(e){showErr('Failed to report body. Check connection.');}
   };
@@ -1264,6 +1334,7 @@ function App(){
       upd.phase='discussion';upd['meeting/calledBy']=myName;upd['meeting/calledAt']=now;
       upd['meeting/type']='body';upd['meeting/discussionEndsAt']=now+DISCUSSION_MS;
       upd.soundEvent={type:'body',triggeredAt:SV.TIMESTAMP};
+      resetGhostSabotages(upd);
     }
     await db.ref(`games/${roomCode}`).update(upd);
   };
@@ -1284,8 +1355,15 @@ function App(){
   };
 
   const noEject=async()=>{await db.ref(`games/${roomCode}`).update({phase:'scatter',scatterEndsAt:Date.now()+15000});};
+
+  // Broadcast ejection result to all clients; auto-advance fires after 5s
+  const revealEjection=async(name)=>{
+    await db.ref(`games/${roomCode}`).update({ejectionReveal:{name:name||null,at:SV.TIMESTAMP}});
+  };
   const cancelVote=async()=>{await db.ref(`games/${roomCode}`).update({phase:'play',votes:{}});};
   const doGhostSabotage=async()=>{
+    const lastAt=game.ghostSabotageEvent?.triggeredAt||0;
+    if(Date.now()+_serverOffset<lastAt+GHOST_COOLDOWN_MS){showErr('Ghost sabotage on cooldown!');return;}
     const action=GHOST_ACTIONS[Math.floor(Math.random()*GHOST_ACTIONS.length)];
     try{await db.ref(`games/${roomCode}`).update({
       [`players/${myName}/ghostSabotageUsed`]:true,
@@ -1310,7 +1388,7 @@ function App(){
     names.forEach(n=>{players[n]={...game.players[n],alive:true,roleRevealed:false,emergencyUsed:false,sabotagesLeft:0,ghostSabotageUsed:false};});
     await db.ref(`games/${roomCode}`).update({
       phase:'lobby',imposters:[],votes:{},winner:null,players,
-      sabotage:{active:false},meeting:{}
+      sabotage:{active:false},meeting:{},ejectionReveal:null
     });
   };
 
@@ -1332,7 +1410,7 @@ function App(){
     case'play':     screen=<PlayScreen {...props} onBodyFound={bodyFound} onEmergency={()=>startMeeting('emergency')} onSabotage={sabotage} onGhostSabotage={doGhostSabotage} onNewGame={newGame}/>;break;
     case'report':   screen=<ReportScreen {...props} onConfirm={confirmDeaths}/>;break;
     case'voting':   screen=<VotingScreen {...props} onVote={castVote} onCancelVote={cancelVote} onGhostSabotage={doGhostSabotage}/>;break;
-    case'results':  screen=<ResultsScreen {...props} onEject={ejectPlayer} onNoEject={noEject}/>;break;
+    case'results':  screen=<ResultsScreen {...props} onReveal={revealEjection}/>;break;
     case'win':      screen=<WinScreen {...props} onNewGame={newGame} onLeave={leaveGame}/>;break;
     default:        screen=<LoadingScreen/>;
   }
