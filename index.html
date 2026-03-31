@@ -44,7 +44,7 @@ input,textarea{user-select:auto!important;-webkit-user-select:auto!important}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef,useMemo,useCallback}=React;
-const VERSION='Mar 30 08:24';
+const VERSION='Mar 30 22:12';
 
 /* ── Firebase ── */
 const FB={
@@ -756,11 +756,13 @@ function ResultsScreen({game,myName,isHost,onEject,onNoEject}){
 
   const tally={};
   alive.forEach(n=>{tally[n]=0;});
-  Object.values(votes).forEach(v=>{if(v&&tally[v]!==undefined)tally[v]++;});
+  Object.values(votes).forEach(v=>{if(v&&v!=='skip'&&tally[v]!==undefined)tally[v]++;});
   const sorted=Object.entries(tally).sort(([,a],[,b])=>b-a);
+  const skipCount=Object.values(votes).filter(v=>v==='skip').length;
   const top=sorted[0]?.[1]||0;
   const topPlayers=sorted.filter(([,v])=>v===top&&v>0);
   const isTie=topPlayers.length!==1;
+  const skipWins=skipCount>top;
 
   if(showReveal){
     const wasImp=imposters.includes(ejectedName);
@@ -789,14 +791,18 @@ function ResultsScreen({game,myName,isHost,onEject,onNoEject}){
           <span className={`font-bold text-lg ${v>0?'text-red-400':'text-slate-500'}`}>{v}v</span>
         </div>
       ))}
+      {skipCount>0&&<div className="flex justify-between items-center bg-slate-800 rounded-xl px-4 py-3 border border-yellow-900/50">
+        <span className="text-yellow-400 font-semibold">⏭ Skip</span>
+        <span className={`font-bold text-lg ${skipWins?'text-yellow-400':'text-slate-500'}`}>{skipCount}v</span>
+      </div>}
     </div>
-    {isHost&&!isTie&&<button onClick={()=>{setEjectedName(topPlayers[0][0]);setShowReveal(true);}}
+    {isHost&&!isTie&&!skipWins&&<button onClick={()=>{setEjectedName(topPlayers[0][0]);setShowReveal(true);}}
       className="w-full max-w-sm bg-red-600 text-white font-title text-xl py-4 rounded-2xl btn pulse-glow mb-2">
       EJECT {topPlayers[0][0].toUpperCase()}
     </button>}
-    {isHost&&isTie&&<button onClick={onNoEject}
+    {isHost&&(isTie||skipWins)&&<button onClick={onNoEject}
       className="w-full max-w-sm bg-slate-700 text-white font-title text-xl py-4 rounded-2xl btn border border-slate-500">
-      TIE — NO EJECTION
+      {skipWins?'SKIPPED — NO EJECTION':'TIE — NO EJECTION'}
     </button>}
     {!isHost&&<p className="text-slate-400 text-sm text-center">Waiting for host to decide…</p>}
   </Page>;
