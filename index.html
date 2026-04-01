@@ -44,7 +44,7 @@ input,textarea{user-select:auto!important;-webkit-user-select:auto!important}
 <div id="root"></div>
 <script type="text/babel">
 const {useState,useEffect,useRef,useMemo}=React;
-const VERSION='Mar 31 09:45';
+const VERSION='Mar 31 10:05';
 
 /* ── Firebase ── */
 const FB={
@@ -1291,7 +1291,8 @@ function App(){
     const upd={
       phase:'discussion',
       meeting:{calledBy:myName,type,discussionEndsAt:now+DISCUSSION_MS},
-      soundEvent:{type:'meeting',triggeredAt:SV.TIMESTAMP}
+      soundEvent:{type:'meeting',triggeredAt:SV.TIMESTAMP},
+      'sabotage/active':false
     };
     if(type==='emergency')upd[`players/${myName}/emergencyUsed`]=true;
     resetGhostSabotages(upd);
@@ -1307,7 +1308,8 @@ function App(){
     const list=Array.isArray(victims)?victims.filter(Boolean):(victims?[victims]:[]);
     const upd={
       meeting:{calledBy:myName,type:'body',victims:list,victim:list[0]||null,discussionEndsAt:now+DISCUSSION_MS},
-      soundEvent:{type:'body',triggeredAt:SV.TIMESTAMP}
+      soundEvent:{type:'body',triggeredAt:SV.TIMESTAMP},
+      'sabotage/active':false
     };
     if(list.length){
       const newPlayers={...game.players};
